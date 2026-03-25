@@ -3,7 +3,6 @@ import { shouldIgnore } from '../../src/scanner/filters';
 
 describe('shouldIgnore', () => {
 
-  // ─── Strings vides ──────────────────────────────────────────────────────────
   describe('strings vides', () => {
     it('ignore une string vide', () => {
       expect(shouldIgnore('')).toBe(true);
@@ -16,7 +15,6 @@ describe('shouldIgnore', () => {
     });
   });
 
-  // ─── Valeurs numériques ──────────────────────────────────────────────────────
   describe('valeurs numériques', () => {
     it('ignore un entier positif', () => expect(shouldIgnore('42')).toBe(true));
     it('ignore un flottant', () => expect(shouldIgnore('3.14')).toBe(true));
@@ -26,7 +24,6 @@ describe('shouldIgnore', () => {
     });
   });
 
-  // ─── Valeurs CSS avec unités ─────────────────────────────────────────────────
   describe('valeurs CSS avec unités', () => {
     it('ignore "16px"', () => expect(shouldIgnore('16px')).toBe(true));
     it('ignore "2rem"', () => expect(shouldIgnore('2rem')).toBe(true));
@@ -36,7 +33,6 @@ describe('shouldIgnore', () => {
     it('ignore "200ms"', () => expect(shouldIgnore('200ms')).toBe(true));
   });
 
-  // ─── Couleurs hexadécimales ──────────────────────────────────────────────────
   describe('couleurs hexadécimales', () => {
     it('ignore "#fff" (3 chiffres)', () => expect(shouldIgnore('#fff')).toBe(true));
     it('ignore "#3b82f6" (6 chiffres)', () => expect(shouldIgnore('#3b82f6')).toBe(true));
@@ -45,7 +41,6 @@ describe('shouldIgnore', () => {
     it('ne ignore pas "#12345" (longueur invalide)', () => expect(shouldIgnore('#12345')).toBe(false));
   });
 
-  // ─── Couleurs CSS fonctionnelles ─────────────────────────────────────────────
   describe('couleurs CSS fonctionnelles', () => {
     it('ignore "rgba(255,0,0,0.5)"', () => expect(shouldIgnore('rgba(255,0,0,0.5)')).toBe(true));
     it('ignore "rgb(0,0,0)"', () => expect(shouldIgnore('rgb(0,0,0)')).toBe(true));
@@ -56,7 +51,6 @@ describe('shouldIgnore', () => {
     });
   });
 
-  // ─── URLs absolues ───────────────────────────────────────────────────────────
   describe('URLs absolues (https / http)', () => {
     it('ignore "https://example.com"', () => expect(shouldIgnore('https://example.com')).toBe(true));
     it('ignore "http://localhost:3000"', () => expect(shouldIgnore('http://localhost:3000')).toBe(true));
@@ -65,7 +59,6 @@ describe('shouldIgnore', () => {
     });
   });
 
-  // ─── URLs avec protocole spécial ─────────────────────────────────────────────
   describe('URLs avec protocole spécial', () => {
     it('ignore "mailto:contact@example.com"', () => {
       expect(shouldIgnore('mailto:contact@example.com')).toBe(true);
@@ -84,7 +77,6 @@ describe('shouldIgnore', () => {
     });
   });
 
-  // ─── URLs relatives au protocole ─────────────────────────────────────────────
   describe('URLs relatives au protocole (//)', () => {
     it('ignore "//cdn.example.com/script.js"', () => {
       expect(shouldIgnore('//cdn.example.com/script.js')).toBe(true);
@@ -94,7 +86,6 @@ describe('shouldIgnore', () => {
     });
   });
 
-  // ─── Routes / chemins ────────────────────────────────────────────────────────
   describe('routes et chemins', () => {
     it('ignore "/dashboard"', () => expect(shouldIgnore('/dashboard')).toBe(true));
     it('ignore "/api/users"', () => expect(shouldIgnore('/api/users')).toBe(true));
@@ -118,7 +109,6 @@ describe('shouldIgnore', () => {
     });
   });
 
-  // ─── Types MIME ──────────────────────────────────────────────────────────────
   describe('types MIME', () => {
     it('ignore "application/json"', () => expect(shouldIgnore('application/json')).toBe(true));
     it('ignore "text/html"', () => expect(shouldIgnore('text/html')).toBe(true));
@@ -132,7 +122,6 @@ describe('shouldIgnore', () => {
     });
   });
 
-  // ─── Variables d'environnement ───────────────────────────────────────────────
   describe('variables d\'environnement (SCREAMING_SNAKE)', () => {
     it('ignore "NODE_ENV"', () => expect(shouldIgnore('NODE_ENV')).toBe(true));
     it('ignore "NEXT_PUBLIC_API_URL"', () => expect(shouldIgnore('NEXT_PUBLIC_API_URL')).toBe(true));
@@ -142,7 +131,6 @@ describe('shouldIgnore', () => {
     it('ne ignore pas "OK" (pas d\'underscore)', () => expect(shouldIgnore('OK')).toBe(false));
   });
 
-  // ─── Mots-clés techniques ────────────────────────────────────────────────────
   describe('mots-clés techniques', () => {
     it('ignore "flex"', () => expect(shouldIgnore('flex')).toBe(true));
     it('ignore "POST"', () => expect(shouldIgnore('POST')).toBe(true));
@@ -158,7 +146,6 @@ describe('shouldIgnore', () => {
     it('ignore "production"', () => expect(shouldIgnore('production')).toBe(true));
   });
 
-  // ─── Identifiants camelCase / PascalCase ─────────────────────────────────────
   describe('identifiants camelCase / PascalCase', () => {
     it('ignore "onClick"', () => expect(shouldIgnore('onClick')).toBe(true));
     it('ignore "onChange"', () => expect(shouldIgnore('onChange')).toBe(true));
@@ -182,7 +169,6 @@ describe('shouldIgnore', () => {
     });
   });
 
-  // ─── Token CSS kebab-case unique ─────────────────────────────────────────────
   describe('token CSS kebab-case unique (single token)', () => {
     it('ignore "p-4"', () => expect(shouldIgnore('p-4')).toBe(true));
     it('ignore "m-8"', () => expect(shouldIgnore('m-8')).toBe(true));
@@ -210,7 +196,6 @@ describe('shouldIgnore', () => {
     });
   });
 
-  // ─── Classes CSS multi-tokens ────────────────────────────────────────────────
   describe('classes CSS multi-tokens (≥ 2 tokens)', () => {
     it('ignore "flex items-center"', () => {
       expect(shouldIgnore('flex items-center')).toBe(true);
@@ -232,7 +217,6 @@ describe('shouldIgnore', () => {
     });
   });
 
-  // ─── Liste noire personnalisée ───────────────────────────────────────────────
   describe('liste noire personnalisée', () => {
     it('ignore une valeur dans additionalBlacklist', () => {
       expect(shouldIgnore('mon-token-custom', { additionalBlacklist: ['mon-token-custom'] })).toBe(true);
@@ -245,7 +229,6 @@ describe('shouldIgnore', () => {
     });
   });
 
-  // ─── Strings traduisibles (ne doivent PAS être ignorées) ────────────────────
   describe('strings traduisibles — doivent être conservées', () => {
     it('"Bonjour"', () => expect(shouldIgnore('Bonjour')).toBe(false));
     it('"Bienvenue sur la plateforme"', () => {

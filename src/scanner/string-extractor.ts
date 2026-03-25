@@ -9,15 +9,11 @@ export type StringType =
 
 /** Une string traduisible extraite du code source. */
 export interface ExtractedString {
-  /** Valeur de la string (avec `{varName}` pour les template literals dynamiques). */
   value: string;
   type: StringType;
   filePath: string;
-  /** Numéro de ligne (1-based). */
   line: number;
-  /** Numéro de colonne (1-based). */
   column: number;
-  /** Variables interpolées — uniquement pour 'template-literal-dynamic'. */
   variables?: string[];
 }
 
@@ -57,18 +53,9 @@ function getLocation(node: Node) {
   };
 }
 
-/**
- * Extrait toutes les strings traduisibles d'un SourceFile ts-morph.
- *
- * Détecte 3 types :
- * 1. Texte JSX en dur : `<p>Bonjour</p>`
- * 2. Attributs HTML traduisibles : `placeholder`, `alt`, `title`, `aria-label`
- * 3. Template literals simples et dynamiques : `` `Salut ${name}` ``
- */
 export function extractStrings(sourceFile: SourceFile, filePath: string): ExtractedString[] {
   const results: ExtractedString[] = [];
 
-  // ─── 1. Texte JSX ────────────────────────────────────────────────────────────
   for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.JsxText)) {
     const trimmed = node.getText().trim();
     if (!trimmed) continue;
@@ -77,7 +64,6 @@ export function extractStrings(sourceFile: SourceFile, filePath: string): Extrac
     results.push({ value: trimmed, type: 'jsx-text', filePath, ...loc });
   }
 
-  // ─── 2. Attributs JSX traduisibles ───────────────────────────────────────────
   for (const attr of sourceFile.getDescendantsOfKind(SyntaxKind.JsxAttribute)) {
     const attrName = attr.getNameNode().getText();
     if (!TRANSLATABLE_ATTRIBUTES.has(attrName)) continue;
@@ -107,7 +93,6 @@ export function extractStrings(sourceFile: SourceFile, filePath: string): Extrac
     results.push({ value: value.trim(), type: 'jsx-attribute', filePath, ...loc });
   }
 
-  // ─── 3. Template literals sans substitution ───────────────────────────────────
   for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.NoSubstitutionTemplateLiteral)) {
     if (isFirstArgOfTCall(node)) continue;
     const value = node.getLiteralValue();
@@ -117,7 +102,6 @@ export function extractStrings(sourceFile: SourceFile, filePath: string): Extrac
     results.push({ value: value.trim(), type: 'template-literal', filePath, ...loc });
   }
 
-  // ─── 4. Template literals dynamiques (avec substitutions) ────────────────────
   for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.TemplateExpression)) {
     if (isFirstArgOfTCall(node)) continue;
 

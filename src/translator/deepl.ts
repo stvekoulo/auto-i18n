@@ -12,7 +12,6 @@ export class DeepLError extends Error {
 const DEEPL_FREE_API = 'https://api-free.deepl.com/v2/translate';
 const DEEPL_PRO_API = 'https://api.deepl.com/v2/translate';
 
-/** Nombre maximum de textes par requête (limite pratique recommandée). */
 export const BATCH_SIZE = 50;
 
 /** Les clés du plan gratuit se terminent par ":fx". */
@@ -20,23 +19,7 @@ function getApiUrl(apiKey: string): string {
   return apiKey.trimEnd().endsWith(':fx') ? DEEPL_FREE_API : DEEPL_PRO_API;
 }
 
-/**
- * Protège les placeholders next-intl `{varname}` avant envoi à DeepL.
- *
- * Stratégie :
- * 1. Échappe les caractères XML spéciaux du texte libre (`&`, `<`, `>`)
- * 2. Enveloppe chaque `{varname}` dans `<x>varname</x>`
- *    → DeepL préserve le contenu des balises `<x>` (ignore_tags)
- *
- * @example
- * protectPlaceholders("Salut {name} !")
- * // → "Salut <x>name</x> !"
- *
- * protectPlaceholders("Prix : 5 € & {count} articles")
- * // → "Prix : 5 € &amp; <x>count</x> articles"
- */
 function protectPlaceholders(text: string): string {
-  // Échappe seulement & < > hors de nos balises — ordre important : & en premier
   const escaped = text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -132,18 +115,12 @@ async function translateBatch(
 }
 
 export interface TranslateOptions {
-  /** Clé API DeepL. Si absent, lit AUTO_I18N_DEEPL_KEY dans process.env. */
   apiKey?: string;
-  /** Code langue source (ex: "fr"). Améliore la qualité si fourni. */
   sourceLang?: string;
 }
 
 /**
  * Traduit un tableau de textes vers `targetLang` via l'API DeepL.
- *
- * - Lit la clé depuis `options.apiKey` ou `process.env.AUTO_I18N_DEEPL_KEY`
- * - Protège les placeholders `{varname}` (format next-intl) — non traduits
- * - Découpe automatiquement en batches de `BATCH_SIZE` strings
  *
  * @param texts      Textes à traduire (peut contenir des placeholders `{name}`)
  * @param targetLang Code langue DeepL cible (ex: "EN", "ES", "DE")

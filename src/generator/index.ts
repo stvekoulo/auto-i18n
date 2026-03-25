@@ -26,14 +26,6 @@ export interface GenerateResult {
 
 /**
  * Génère le fichier de traduction source à partir de la liste de strings extraites.
- *
- * Étapes :
- * 1. Déduplique les strings (même valeur → même clé)
- * 2. Construit une clé unique pour chaque valeur via `rawKey` + `KeyRegistry`
- * 3. Trie les clés alphabétiquement (diff git stable)
- * 4. Crée `messagesDir` si absent
- * 5. Écrit `{messagesDir}/{sourceLocale}.json`
- * 6. Retourne `keyMap` pour le rewriter et `messages` pour la traduction
  */
 export async function generateMessages(
   strings: ExtractedString[],
@@ -41,8 +33,6 @@ export async function generateMessages(
 ): Promise<GenerateResult> {
   const { sourceLocale, messagesDir } = options;
 
-  // ─── 1. Déduplication ────────────────────────────────────────────────────────
-  // On indexe par valeur exacte. La première occurrence détermine l'ordre.
   const uniqueValues: string[] = [];
   const seen = new Set<string>();
 
@@ -53,7 +43,6 @@ export async function generateMessages(
     }
   }
 
-  // ─── 2. Construction des clés ────────────────────────────────────────────────
   const registry = new KeyRegistry();
   const keyMap = new Map<string, string>();
 
@@ -63,7 +52,6 @@ export async function generateMessages(
     keyMap.set(value, key);
   }
 
-  // ─── 3. Objet messages trié alphabétiquement ─────────────────────────────────
   const messages: Record<string, string> = {};
   for (const [value, key] of keyMap) {
     messages[key] = value;
@@ -73,7 +61,6 @@ export async function generateMessages(
     Object.entries(messages).sort(([a], [b]) => a.localeCompare(b)),
   );
 
-  // ─── 4 & 5. Écriture du fichier JSON ─────────────────────────────────────────
   const absMessagesDir = resolve(messagesDir);
   await mkdir(absMessagesDir, { recursive: true });
 

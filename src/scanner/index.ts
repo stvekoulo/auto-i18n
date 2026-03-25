@@ -26,11 +26,8 @@ const CONFIG_FILE_NAMES = new Set([
 ]);
 
 export interface ScanOptions {
-  /** Répertoires supplémentaires à ignorer (en plus des défauts). */
   ignoreDirs?: string[];
-  /** Noms de fichiers spécifiques à exclure. */
   ignoreFiles?: string[];
-  /** Options de filtrage des strings. */
   filter?: FilterOptions;
 }
 

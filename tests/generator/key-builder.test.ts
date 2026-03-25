@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { rawKey, KeyRegistry } from '../../src/generator/key-builder';
 
-// ─── rawKey ─────────────────────────────────────────────────────────────────
-
 describe('rawKey', () => {
   describe('cas normaux', () => {
     it('"Bonjour" → "bonjour"', () => {
@@ -149,8 +147,6 @@ describe('rawKey', () => {
     });
   });
 });
-
-// ─── KeyRegistry ─────────────────────────────────────────────────────────────
 
 describe('KeyRegistry', () => {
   let registry: KeyRegistry;

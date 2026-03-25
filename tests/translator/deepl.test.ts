@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { translate, DeepLError, BATCH_SIZE } from '../../src/translator/deepl';
 
-// ─── Mock global fetch ───────────────────────────────────────────────────────
-
 const mockFetch = vi.fn();
 vi.stubGlobal('fetch', mockFetch);
 
@@ -35,8 +33,6 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env['AUTO_I18N_DEEPL_KEY'];
 });
-
-// ─── Traduction de base ──────────────────────────────────────────────────────
 
 describe('translate — cas normaux', () => {
   it('retourne les textes traduits dans le bon ordre', async () => {
@@ -101,11 +97,8 @@ describe('translate — cas normaux', () => {
   });
 });
 
-// ─── Préservation des placeholders ──────────────────────────────────────────
-
 describe('translate — préservation des placeholders {varname}', () => {
   it('préserve {name} dans la traduction', async () => {
-    // Simule ce que DeepL retourne avec les balises <x> préservées
     mockSuccess(['Hello <x>name</x>!']);
     const result = await translate(['Bonjour {name} !'], 'EN');
     expect(result[0]).toBe('Hello {name}!');
@@ -151,13 +144,10 @@ describe('translate — préservation des placeholders {varname}', () => {
 
     const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
     const body = JSON.parse(init.body as string) as { text: string[] };
-    // Le & dans le texte libre doit être échappé en &amp;
     expect(body.text[0]).toContain('&amp;');
     expect(body.text[0]).toContain('<x>count</x>');
   });
 });
-
-// ─── Batching ────────────────────────────────────────────────────────────────
 
 describe('translate — batching automatique', () => {
   it(`découpe en batches de ${BATCH_SIZE} strings max`, async () => {
@@ -192,8 +182,6 @@ describe('translate — batching automatique', () => {
     expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 });
-
-// ─── Gestion des erreurs ─────────────────────────────────────────────────────
 
 describe('translate — gestion des erreurs', () => {
   it('lance DeepLError si la clé API est absente', async () => {

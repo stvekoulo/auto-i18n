@@ -6,38 +6,23 @@ import { translate, type TranslateOptions } from './deepl.js';
 export { DeepLError } from './deepl.js';
 
 export interface TranslateMessagesOptions {
-  /** Locale de la langue source (ex: "fr"). */
   sourceLocale: string;
-  /** Locales des langues cibles (ex: ["en", "es", "de"]). */
   targetLocales: string[];
-  /** Chemin vers le dossier messages/ contenant les fichiers JSON. */
   messagesDir: string;
-  /** Clé API DeepL (si absent, lit AUTO_I18N_DEEPL_KEY). */
   apiKey?: string;
-  /** Supprime le spinner terminal — utile pour les tests ou les CI. */
   silent?: boolean;
 }
 
 export interface TranslateMessagesResult {
-  /** Nombre total de strings nouvellement traduites. */
   totalTranslated: number;
-  /** Locales qui avaient déjà toutes leurs clés (non retraitées). */
   skipped: string[];
 }
 
-/**
- * Traduit le fichier source `{messagesDir}/{sourceLocale}.json` vers chaque
- * langue cible et écrit les fichiers `{messagesDir}/{targetLocale}.json`.
- *
- * Mode incrémental : si un fichier cible existe déjà, seules les clés
- * absentes sont envoyées à DeepL — les traductions existantes sont conservées.
- */
 export async function translateMessages(
   options: TranslateMessagesOptions,
 ): Promise<TranslateMessagesResult> {
   const { sourceLocale, targetLocales, messagesDir, apiKey, silent = false } = options;
 
-  // ─── Lecture du fichier source ───────────────────────────────────────────────
   const absDir = resolve(messagesDir);
   const sourcePath = join(absDir, `${sourceLocale}.json`);
   const sourceRaw = await readFile(sourcePath, 'utf-8');
@@ -49,11 +34,9 @@ export async function translateMessages(
   let totalTranslated = 0;
   const skipped: string[] = [];
 
-  // ─── Traduction par locale cible ────────────────────────────────────────────
   for (const targetLocale of targetLocales) {
     const targetPath = join(absDir, `${targetLocale}.json`);
 
-    // Mode incrémental : charge les traductions existantes si le fichier existe
     let existing: Record<string, string> = {};
     try {
       await access(targetPath);

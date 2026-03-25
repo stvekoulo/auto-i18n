@@ -3,7 +3,6 @@ import { parse as babelParse } from '@babel/parser';
 import type { File as BabelFile } from '@babel/types';
 import { readFileSync } from 'fs';
 
-// JsxEmit.ReactJSX = 4 — support JSX/TSX sans import React explicite
 const COMPILER_OPTIONS = {
   allowJs: true,
   jsx: 4,
@@ -60,7 +59,7 @@ export function parseBabelFallback(filePath: string): BabelFile {
   });
 }
 
-/** Réinitialise le projet partagé (utile pour les tests d'intégration). */
+/** Réinitialise le projet partagé */
 export function resetSharedProject(): void {
   _sharedProject = null;
 }

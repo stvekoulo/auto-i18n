@@ -4,9 +4,6 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { translateMessages } from '../../src/translator/index';
 
-// ─── Mocks ───────────────────────────────────────────────────────────────────
-
-// Mock deepl.translate pour ne pas faire de vrais appels réseau
 vi.mock('../../src/translator/deepl', () => ({
   DeepLError: class DeepLError extends Error {
     constructor(
@@ -21,7 +18,6 @@ vi.mock('../../src/translator/deepl', () => ({
   BATCH_SIZE: 50,
 }));
 
-// Mock ora pour éviter la sortie terminal dans les tests
 vi.mock('ora', () => ({
   default: vi.fn(() => ({
     start: vi.fn().mockReturnThis(),
@@ -31,11 +27,8 @@ vi.mock('ora', () => ({
   })),
 }));
 
-// Import du mock après vi.mock
 import { translate } from '../../src/translator/deepl';
 const mockTranslate = vi.mocked(translate);
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 let tmpDirs: string[] = [];
 
@@ -64,8 +57,6 @@ afterEach(async () => {
   }
   tmpDirs = [];
 });
-
-// ─── Traduction complète ─────────────────────────────────────────────────────
 
 describe('translateMessages — traduction complète', () => {
   it('traduit toutes les clés et écrit le fichier cible', async () => {
@@ -157,8 +148,6 @@ describe('translateMessages — traduction complète', () => {
   });
 });
 
-// ─── Mode incrémental ────────────────────────────────────────────────────────
-
 describe('translateMessages — mode incrémental', () => {
   it('ne traduit que les clés manquantes', async () => {
     const dir = await makeTmpDir();
@@ -167,7 +156,6 @@ describe('translateMessages — mode incrémental', () => {
       merci: 'Merci',
       au_revoir: 'Au revoir',
     });
-    // "bonjour" existe déjà en anglais
     await writeJson(join(dir, 'en.json'), { bonjour: 'Hello' });
 
     mockTranslate.mockResolvedValueOnce(['Thank you', 'Goodbye']);
@@ -179,7 +167,6 @@ describe('translateMessages — mode incrémental', () => {
       silent: true,
     });
 
-    // Vérifie que seules les clés manquantes ont été envoyées
     expect(mockTranslate).toHaveBeenCalledWith(
       expect.arrayContaining(['Merci', 'Au revoir']),
       'en',
@@ -242,8 +229,6 @@ describe('translateMessages — mode incrémental', () => {
   });
 });
 
-// ─── Valeurs sources préservées dans le fichier cible ────────────────────────
-
 describe('translateMessages — placeholders next-intl', () => {
   it('la valeur traduite (avec {name}) est écrite telle quelle dans le JSON', async () => {
     const dir = await makeTmpDir();
@@ -264,8 +249,6 @@ describe('translateMessages — placeholders next-intl', () => {
     expect(en['salut_name']).toBe('Hello {name}');
   });
 });
-
-// ─── Gestion d'erreurs ───────────────────────────────────────────────────────
 
 describe('translateMessages — gestion d\'erreurs', () => {
   it('propage l\'erreur si translate() échoue', async () => {

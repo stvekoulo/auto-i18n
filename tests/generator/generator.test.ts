@@ -5,8 +5,6 @@ import { tmpdir } from 'os';
 import { generateMessages } from '../../src/generator/index';
 import type { ExtractedString } from '../../src/generator/index';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function str(value: string, type: ExtractedString['type'] = 'jsx-text'): ExtractedString {
   return { value, type, filePath: 'Test.tsx', line: 1, column: 1 };
 }
@@ -25,8 +23,6 @@ afterEach(async () => {
   }
   tmpDirs = [];
 });
-
-// ─── Génération de base ──────────────────────────────────────────────────────
 
 describe('generateMessages', () => {
   describe('JSON généré — structure et contenu', () => {
@@ -59,7 +55,6 @@ describe('generateMessages', () => {
         { sourceLocale: 'fr', messagesDir: dir },
       );
 
-      // La valeur conserve la ponctuation originale
       expect(Object.values(messages)).toContain('Bienvenue sur notre site !');
     });
 
@@ -74,8 +69,6 @@ describe('generateMessages', () => {
       expect(keyMap.size).toBe(0);
     });
   });
-
-  // ─── Déduplication ──────────────────────────────────────────────────────────
 
   describe('déduplication', () => {
     it('strings identiques → une seule clé partagée', async () => {
@@ -128,8 +121,6 @@ describe('generateMessages', () => {
     });
   });
 
-  // ─── Collisions de clés ──────────────────────────────────────────────────────
-
   describe('collisions de clés', () => {
     it('deux valeurs produisant la même clé brute → suffixe _2', async () => {
       const dir = await makeTmpDir();
@@ -156,8 +147,6 @@ describe('generateMessages', () => {
       expect(keys).toContain('ok_3');
     });
   });
-
-  // ─── Template literals dynamiques ────────────────────────────────────────────
 
   describe('template literals dynamiques (format next-intl)', () => {
     it('la valeur dans le JSON conserve les placeholders {varName}', async () => {
@@ -214,14 +203,10 @@ describe('generateMessages', () => {
         messagesDir: dir,
       });
 
-      // La clé retire les accolades et normalise les points
       expect(keyMap.get('Bonjour {user.name}')).toBe('bonjour_user_name');
-      // La valeur JSON conserve le placeholder tel quel
       expect(Object.values(messages)).toContain('Bonjour {user.name}');
     });
   });
-
-  // ─── Écriture du fichier JSON ────────────────────────────────────────────────
 
   describe('écriture du fichier JSON', () => {
     it('crée le fichier {sourceLocale}.json dans messagesDir', async () => {
@@ -284,8 +269,6 @@ describe('generateMessages', () => {
       expect(outputPath).toMatch(/en\.json$/);
     });
   });
-
-  // ─── keyMap retourné ─────────────────────────────────────────────────────────
 
   describe('keyMap (pour le rewriter)', () => {
     it('mappe chaque valeur originale à sa clé', async () => {

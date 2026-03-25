@@ -17,7 +17,6 @@ function byType(strings: ExtractedString[], type: StringType): ExtractedString[]
   return strings.filter(s => s.type === type);
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
 function hasValue(strings: ExtractedString[], value: string): boolean {
   return strings.some(s => s.value === value);
 }
@@ -50,8 +49,6 @@ describe('extractStrings — fixture TestComponent', () => {
     });
 
     it("n'extrait pas le texte 'X' du bouton (string d'un caractère)", () => {
-      // Le 'X' dans <button>X</button> est un JsxText valide — il est extrait
-      // mais le filtre shouldIgnore devra décider de le garder ou non
       const source = '<button>X</button>';
       const sf = parseSource(source, 'btn.tsx');
       const result = extractStrings(sf, 'btn.tsx');
@@ -170,7 +167,6 @@ describe('extractStrings — fixture TestComponent', () => {
       const raw = extractStrings(sf, 'TestComponent.tsx');
       const kept = raw.filter(s => !shouldIgnore(s.value));
 
-      // Les strings techniques doivent être filtrées
       expect(kept.some(s => s.value === 'flex items-center justify-between')).toBe(false);
       expect(kept.some(s => s.value === '/dashboard')).toBe(false);
       expect(kept.some(s => s.value === 'POST')).toBe(false);
