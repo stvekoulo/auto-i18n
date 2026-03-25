@@ -1,5 +1,5 @@
 /** Longueur maximale d'une clé i18n générée. */
-const MAX_KEY_LENGTH = 70;
+const MAX_KEY_LENGTH = 40;
 
 /**
  * Génère une clé i18n brute à partir d'une string traduite.
