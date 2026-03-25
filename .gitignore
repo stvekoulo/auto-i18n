@@ -1,0 +1,22 @@
+node_modules/
+dist/
+
+# Variables d'environnement — ne jamais commiter
+.env
+.env.local
+.env.*.local
+
+# Backups générés par auto-i18n avant réécriture AST
+*.backup
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

@@ -1,0 +1,66 @@
+import { Project, type SourceFile } from 'ts-morph';
+import { parse as babelParse } from '@babel/parser';
+import type { File as BabelFile } from '@babel/types';
+import { readFileSync } from 'fs';
+
+// JsxEmit.ReactJSX = 4 — support JSX/TSX sans import React explicite
+const COMPILER_OPTIONS = {
+  allowJs: true,
+  jsx: 4,
+  skipLibCheck: true,
+} as const;
+
+let _sharedProject: Project | null = null;
+
+function getSharedProject(): Project {
+  if (!_sharedProject) {
+    _sharedProject = new Project({
+      compilerOptions: COMPILER_OPTIONS,
+      skipAddingFilesFromTsConfig: true,
+      skipFileDependencyResolution: true,
+    });
+  }
+  return _sharedProject;
+}
+
+/**
+ * Parse un fichier depuis le disque via ts-morph.
+ * Utilisé en production lors du scan du projet.
+ */
+export function parseFile(filePath: string): SourceFile {
+  const project = getSharedProject();
+  const existing = project.getSourceFile(filePath);
+  if (existing) return existing;
+  return project.addSourceFileAtPath(filePath);
+}
+
+/**
+ * Parse une string de code source en mémoire via ts-morph.
+ * Principalement utilisé dans les tests.
+ */
+export function parseSource(content: string, filePath: string = 'virtual.tsx'): SourceFile {
+  const project = new Project({
+    compilerOptions: COMPILER_OPTIONS,
+    skipAddingFilesFromTsConfig: true,
+    skipFileDependencyResolution: true,
+    useInMemoryFileSystem: true,
+  });
+  return project.createSourceFile(filePath, content);
+}
+
+/**
+ * Fallback sur @babel/parser pour les projets JS purs (sans TypeScript).
+ */
+export function parseBabelFallback(filePath: string): BabelFile {
+  const content = readFileSync(filePath, 'utf-8');
+  return babelParse(content, {
+    sourceType: 'module',
+    plugins: ['jsx', 'typescript'],
+    errorRecovery: true,
+  });
+}
+
+/** Réinitialise le projet partagé (utile pour les tests d'intégration). */
+export function resetSharedProject(): void {
+  _sharedProject = null;
+}
