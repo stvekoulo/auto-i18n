@@ -3,9 +3,9 @@
 </p>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/next-auto-i18n"><img src="https://img.shields.io/npm/v/next-auto-i18n.svg" alt="npm version"></a>
-  <a href="https://github.com/stevenkoulo/next-auto-i18n/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/next-auto-i18n.svg" alt="license"></a>
-  <a href="https://nodejs.org"><img src="https://img.shields.io/node/v/next-auto-i18n.svg" alt="node version"></a>
+  <a href="https://www.npmjs.com/package/next-auto-i18n"><img src="https://img.shields.io/npm/v/next-auto-i18n" alt="npm version"></a>
+  <a href="https://www.npmjs.com/package/next-auto-i18n"><img src="https://img.shields.io/npm/dm/next-auto-i18n" alt="npm downloads"></a>
+  <a href="https://github.com/stvekoulo/next-auto-i18n/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/next-auto-i18n" alt="license"></a>
 </p>
 
 <p align="center"><strong>Translate your Next.js project automatically in under 5 minutes.</strong></p>
@@ -650,7 +650,7 @@ DeepL rate limit reached.
 ### Setup
 
 ```bash
-git clone https://github.com/stevenkoulo/next-auto-i18n.git
+git clone https://github.com/stvekoulo/next-auto-i18n.git
 cd next-auto-i18n
 npm install
 ```

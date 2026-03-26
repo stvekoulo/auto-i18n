@@ -1,8 +1,14 @@
 # next-auto-i18n
 
+![npm version](https://img.shields.io/npm/v/next-auto-i18n)
+![npm downloads](https://img.shields.io/npm/dm/next-auto-i18n)
+![license](https://img.shields.io/npm/l/next-auto-i18n)
+
 > Automatise l'internationalisation d'un projet React / Next.js en une seule commande.
 
 **next-auto-i18n** scanne votre code, extrait les strings traduisibles, les traduit via DeepL, et reconfigure votre projet pour utiliser [next-intl](https://next-intl-docs.vercel.app/) — sans intervention manuelle.
+
+**[Documentation complete](./DOCUMENTATION.md)**
 
 ## Installation
 
@@ -155,7 +161,7 @@ Chaque string devient une cle i18n normalisee :
 ## Developpement
 
 ```bash
-git clone https://github.com/stevenkoulo/next-auto-i18n.git
+git clone https://github.com/stvekoulo/next-auto-i18n.git
 cd next-auto-i18n
 npm install
 npm test        # vitest
