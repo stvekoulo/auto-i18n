@@ -151,8 +151,13 @@ async function rewriteRootLayout(layoutPath: string): Promise<void> {
     fontDecls.push(match[0]);
   }
 
-  // Extraire le className du body s'il existe
-  const bodyClassMatch = content.match(/<body[^>]*className\s*=\s*\{?["'`]?([^"'`}]+)["'`]?\}?/);
+  // Extraire l'ouverture complète du tag <body> (attributs préservés verbatim)
+  // On capture tout entre <body et le premier > non imbriqué dans {}
+  let bodyTag = '<body>';
+  const bodyTagMatch = content.match(/<body[^>]*>/);
+  if (bodyTagMatch) {
+    bodyTag = bodyTagMatch[0];
+  }
 
   // Construire le nouveau root layout
   const imports = [
@@ -162,16 +167,6 @@ async function rewriteRootLayout(layoutPath: string): Promise<void> {
 
   const importsStr = imports.length > 0 ? imports.join('\n') + '\n\n' : '';
   const fontDeclsStr = fontDecls.length > 0 ? fontDecls.join('\n') + '\n\n' : '';
-
-  // Reconstruire la className du body
-  let bodyTag = '<body>';
-  if (bodyClassMatch) {
-    bodyTag = `<body className={${bodyClassMatch[1]}}>`;
-    // Simple case: string literal
-    if (/^["'`]/.test(bodyClassMatch[1])) {
-      bodyTag = `<body className=${bodyClassMatch[1]}>`;
-    }
-  }
 
   const newContent = `${importsStr}${fontDeclsStr}export default function RootLayout({
   children,

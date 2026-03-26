@@ -21,9 +21,11 @@ export const config = {
 const PROXY_CONTENT = `import createMiddleware from 'next-intl/middleware';
 import { routing } from './i18n/routing';
 
-export function GET(request: Request) {
-  return createMiddleware(routing)(request);
-}
+export default createMiddleware(routing);
+
+export const config = {
+  matcher: ['/((?!api|_next|_vercel|.*\\\\..*).*)'],
+};
 `;
 
 /**

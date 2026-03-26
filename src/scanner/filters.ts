@@ -67,6 +67,26 @@ const TECHNICAL_KEYWORDS = new Set([
 /** "42", "-7", "3.14" */
 const NUMERIC_RE = /^-?\d+(\.\d+)?$/;
 
+/**
+ * Nombre avec préfixe/suffixe simple (currency, %, +).
+ * Ex: "29€", "1500+", "$99", "50%", "3×", "100k", "€29"
+ */
+const NUMERIC_WITH_AFFIX_RE =
+  /^[€$£¥₩₹฿]?\s*\d[\d\s.,]*\s*[€$£¥₩₹฿%+×xkKmMbB]*[+]?$|^[€$£¥₩₹฿]\s*\d[\d\s.,]*$/;
+
+/**
+ * String composée uniquement d'emojis, symboles ou ponctuation (aucune lettre ni chiffre).
+ * Ex: "🏋️", "🥊", "✓", "★", "→"
+ */
+function isSymbolOrEmojiOnly(value: string): boolean {
+  if (!value.trim()) return false;
+  const stripped = value.replace(
+    /[\p{Emoji_Presentation}\p{Extended_Pictographic}\p{Symbol}\s]/gu,
+    '',
+  );
+  return stripped.length === 0;
+}
+
 /** "16px", "2rem", "100vh", "0.5s" */
 const CSS_VALUE_RE = /^-?\d+(\.\d+)?(px|em|rem|vh|vw|vmin|vmax|pt|cm|mm|in|pc|ex|ch|%|s|ms)$/;
 
@@ -136,6 +156,8 @@ export function shouldIgnore(value: string, options?: FilterOptions): boolean {
   if (trimmed.length > 1 && ROUTE_RE.test(trimmed)) return true;
   if (MIME_TYPE_RE.test(trimmed)) return true;
   if (ENV_VAR_RE.test(trimmed)) return true;
+  if (NUMERIC_WITH_AFFIX_RE.test(trimmed)) return true;
+  if (isSymbolOrEmojiOnly(trimmed)) return true;
   if (TECHNICAL_KEYWORDS.has(trimmed)) return true;
   if (isCamelCaseIdentifier(trimmed)) return true;
   if (isSingleCssToken(trimmed)) return true;

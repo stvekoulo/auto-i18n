@@ -54,10 +54,12 @@ export async function installPackage(
 ): Promise<void> {
   const pm = await detectPackageManager(projectRoot);
 
+  // Sur Windows, les exécutables npm/yarn/pnpm sont des scripts .cmd
+  const isWin = process.platform === 'win32';
   const commands: Record<PackageManager, [string, string[]]> = {
-    npm: ['npm', ['install', packageName]],
-    yarn: ['yarn', ['add', packageName]],
-    pnpm: ['pnpm', ['add', packageName]],
+    npm:  [isWin ? 'npm.cmd'  : 'npm',  ['install', packageName]],
+    yarn: [isWin ? 'yarn.cmd' : 'yarn', ['add', packageName]],
+    pnpm: [isWin ? 'pnpm.cmd' : 'pnpm', ['add', packageName]],
   };
 
   const [cmd, args] = commands[pm];
