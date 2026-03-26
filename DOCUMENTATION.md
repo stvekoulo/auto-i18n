@@ -111,6 +111,9 @@ npx next-auto-i18n init
   ✓ Translation ES (42 strings)
   ✓ 84 strings translated
 
+▸ Checking dependencies
+  ✓ next-intl installed
+
 ▸ Rewriting components
   ✓ 47 replacements in 12 files
 
@@ -119,6 +122,7 @@ npx next-auto-i18n init
   ✓ next.config configured
   ✓ middleware.ts created
   ✓ i18n/routing.ts created
+  ✓ LanguageSwitcher injected
 
   ✓ Internationalization configured successfully!
   Languages: fr → en, es
@@ -131,7 +135,7 @@ npx next-auto-i18n init
 npm run dev
 ```
 
-Your site now supports `fr`, `en`, and `es`. Visit `/en` or `/es` to see the translations.
+Your site now supports `fr`, `en`, and `es`. A **floating language switcher** appears at the bottom-right corner, allowing users to switch languages instantly. Visit `/en` or `/es` to see the translations.
 
 ---
 
@@ -324,7 +328,14 @@ npx next-auto-i18n init
         │
         ▼
 ┌──────────────────────────────────────┐
-│  5. Component Rewriting              │
+│  5. Dependency Check                 │
+│     Auto-installs next-intl if      │
+│     missing (npm / yarn / pnpm)     │
+└──────────────────────────────────────┘
+        │
+        ▼
+┌──────────────────────────────────────┐
+│  6. Component Rewriting              │
 │     <p>Bonjour</p>                   │
 │     → <p>{t("hello")}</p>           │
 │                                      │
@@ -334,15 +345,16 @@ npx next-auto-i18n init
         │
         ▼
 ┌──────────────────────────────────────┐
-│  6. Next.js Config Injection         │
+│  7. Next.js Config Injection         │
 │     • layout.tsx → NextIntlClientProvider  │
 │     • next.config → createNextIntlPlugin   │
 │     • middleware.ts → routing               │
 │     • i18n/routing.ts → locale definitions │
+│     • LanguageSwitcher → floating widget   │
 └──────────────────────────────────────┘
         │
         ▼
-   ✓ i18n-ready site
+   ✓ i18n-ready site with language switcher
 ```
 
 ### AST Scanning
@@ -433,6 +445,49 @@ The corresponding JSON entry uses ICU-style placeholders:
   "bienvenue_username_vous_avez_count": "Bienvenue {userName}, vous avez {count} messages"
 }
 ```
+
+### Language Switcher
+
+next-auto-i18n automatically generates a floating language switcher widget and injects it into your layout. Users can change the language directly from the browser — no extra setup needed.
+
+**Features:**
+- Floating pill button at the bottom-right corner with the current locale flag and name
+- Animated dropdown listing all configured locales with flags and native names
+- Active language highlighted with a checkmark
+- Click outside to close
+- Hover effects and smooth animations
+- Works with both `app/` and `src/app/` project structures
+
+**Customization:**
+
+The generated `components/LanguageSwitcher.tsx` file contains a `SWITCHER_CONFIG` block at the top that you can modify:
+
+```tsx
+const SWITCHER_CONFIG = {
+  /** Position: 'bottom-right' | 'bottom-left' */
+  position: 'bottom-right',
+  /** Theme: 'light' | 'dark' */
+  theme: 'light',
+  /** Accent color for the active locale highlight */
+  accentColor: '#2563eb',
+  /** Offset from screen edges in pixels */
+  offset: 24,
+  /** Border radius of the dropdown in pixels */
+  borderRadius: 12,
+};
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `position` | `'bottom-right' \| 'bottom-left'` | `'bottom-right'` | Corner of the screen where the widget appears |
+| `theme` | `'light' \| 'dark'` | `'light'` | Color scheme of the widget |
+| `accentColor` | `string` | `'#2563eb'` | Color used for the active locale highlight |
+| `offset` | `number` | `24` | Distance from screen edges in pixels |
+| `borderRadius` | `number` | `12` | Border radius of the dropdown popup |
+
+> **Note:** The "Made by Steven Koulo" attribution is required by the license and must not be removed.
+
+---
 
 ### Server Components vs Client Components
 
@@ -681,8 +736,8 @@ next-auto-i18n/
 │   ├── generator/        # Key generation + JSON file creation
 │   ├── translator/       # DeepL API client + translation orchestration
 │   ├── rewriter/         # JSX/attribute rewriting via AST
-│   ├── injector/         # Next.js config injection (layout, config, middleware, routing)
-│   └── utils/            # Config, env, logger utilities
+│   ├── injector/         # Next.js config injection (layout, config, middleware, routing, switcher)
+│   └── utils/            # Config, env, logger, dependency utilities
 ├── tests/                # Vitest test suites (298 tests)
 ├── auto-i18n-specs.md    # Project specifications
 └── DOCUMENTATION.md      # This file
@@ -724,8 +779,10 @@ The test suite covers all modules:
 
 ### v1.x — Enhancements
 
-- [ ] `next-auto-i18n sync` — rescan and incremental update *(done)*
-- [ ] `next-auto-i18n missing` — report untranslated keys *(done)*
+- [x] `next-auto-i18n sync` — rescan and incremental update
+- [x] `next-auto-i18n missing` — report untranslated keys
+- [x] Floating language switcher widget (auto-injected, customizable)
+- [x] Automatic `next-intl` dependency installation
 - [ ] `--watch` mode — auto-sync on file changes
 - [ ] Support for Vite + React (without Next.js)
 - [ ] Custom key naming strategies

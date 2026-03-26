@@ -168,6 +168,9 @@ program
 
       if (injResult.routing.ok) logger.success('i18n/routing.ts créé');
 
+      if (injResult.switcher.ok) logger.success('LanguageSwitcher injecté');
+      else if (injResult.switcher.error) logger.warn(`LanguageSwitcher — ${injResult.switcher.error}`);
+
       // Terminé
       logger.blank();
       logger.success('Internationalisation configurée avec succès !');

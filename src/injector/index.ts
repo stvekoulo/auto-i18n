@@ -2,16 +2,19 @@ import { injectLayout } from './layout-injector.js';
 import { injectNextConfig } from './config-injector.js';
 import { injectMiddleware } from './middleware-injector.js';
 import { injectRouting } from './routing-injector.js';
+import { injectLanguageSwitcher } from './switcher-injector.js';
 
 export { injectLayout } from './layout-injector.js';
 export { injectNextConfig } from './config-injector.js';
 export { injectMiddleware } from './middleware-injector.js';
 export { injectRouting } from './routing-injector.js';
+export { injectLanguageSwitcher } from './switcher-injector.js';
 
 export type { LayoutInjectorResult } from './layout-injector.js';
 export type { ConfigInjectorResult } from './config-injector.js';
 export type { MiddlewareInjectorResult } from './middleware-injector.js';
 export type { RoutingInjectorResult, RoutingConfig } from './routing-injector.js';
+export type { SwitcherInjectorResult } from './switcher-injector.js';
 
 export interface InjectOptions {
   /** Racine du projet Next.js cible. */
@@ -29,6 +32,7 @@ export interface InjectAllResult {
   config: { ok: boolean; skipped: boolean; error?: string };
   middleware: { ok: boolean; skipped: boolean; warning?: string; error?: string };
   routing: { ok: boolean; skipped: boolean; error?: string };
+  switcher: { ok: boolean; skipped: boolean; error?: string };
 }
 
 export async function injectAll(options: InjectOptions): Promise<InjectAllResult> {
@@ -38,6 +42,7 @@ export async function injectAll(options: InjectOptions): Promise<InjectAllResult
     config: { ok: false, skipped: false },
     middleware: { ok: false, skipped: false },
     routing: { ok: false, skipped: false },
+    switcher: { ok: false, skipped: false },
   };
 
   // 1. Layout
@@ -78,6 +83,16 @@ export async function injectAll(options: InjectOptions): Promise<InjectAllResult
     const error = err instanceof Error ? err.message : String(err);
     if (!silent) console.error(`  ✗ i18n/routing.ts — ${error}`);
     result.routing = { ok: false, skipped: false, error };
+  }
+
+  // 5. Language Switcher
+  try {
+    const r = await injectLanguageSwitcher(projectRoot, { silent });
+    result.switcher = { ok: true, skipped: r.skipped };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    if (!silent) console.error(`  ✗ LanguageSwitcher — ${error}`);
+    result.switcher = { ok: false, skipped: false, error };
   }
 
   return result;

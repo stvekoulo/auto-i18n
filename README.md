@@ -45,8 +45,10 @@ Et en quelques secondes :
 - Scanne tous vos composants via AST
 - Genere `messages/fr.json` avec les cles i18n
 - Traduit automatiquement vers chaque langue cible
+- Installe `next-intl` automatiquement si absent
 - Remplace les strings en dur par `t("cle")`
 - Configure `layout.tsx`, `next.config`, `middleware.ts`, `i18n/routing.ts`
+- Injecte un **Language Switcher flottant** (personnalisable) pour changer de langue
 
 ## Commandes
 
@@ -150,6 +152,11 @@ Chaque string devient une cle i18n normalisee :
 - `next.config` : wrappe avec `createNextIntlPlugin`
 - `middleware.ts` : cree avec le routing i18n
 - `i18n/routing.ts` : definit les locales
+- `LanguageSwitcher.tsx` : widget flottant pour changer de langue
+
+### 6. Language Switcher
+
+Un composant flottant est automatiquement genere et injecte dans votre layout. Personnalisable via `SWITCHER_CONFIG` dans `components/LanguageSwitcher.tsx` : position, theme (light/dark), couleur d'accent, offset.
 
 ## Securite
 
