@@ -18,8 +18,12 @@ export function rewriteJsxText(
     const key = keyMap.get(trimmed);
     if (!key) continue;
 
-    node.replaceWithText(`{t("${key}")}`);
-    count++;
+    try {
+      node.replaceWithText(`{t("${key}")}`);
+      count++;
+    } catch {
+      // Skip nodes that can't be safely replaced (complex AST structures)
+    }
   }
 
   return count;
@@ -48,8 +52,12 @@ export function rewriteNoSubstitutionTemplateLiterals(
       if (/^t$|^translate$/.test(parent.getExpression().getText())) continue;
     }
 
-    node.replaceWithText(`t("${key}")`);
-    count++;
+    try {
+      node.replaceWithText(`t("${key}")`);
+      count++;
+    } catch {
+      // Skip nodes that can't be safely replaced
+    }
   }
 
   return count;
@@ -89,8 +97,12 @@ export function rewriteTemplateExpressions(
     if (!key) continue;
 
     const params = buildParamsObject(variables);
-    node.replaceWithText(`t("${key}", ${params})`);
-    count++;
+    try {
+      node.replaceWithText(`t("${key}", ${params})`);
+      count++;
+    } catch {
+      // Skip nodes that can't be safely replaced (ternaries, complex expressions)
+    }
   }
 
   return count;

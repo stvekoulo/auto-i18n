@@ -153,28 +153,36 @@ export async function rewriteFiles(
   let totalReplaced = 0;
 
   for (const filePath of filePaths) {
-    const sourceFile = project.addSourceFileAtPath(filePath);
-    const replaced = rewriteSourceFile(sourceFile, keyMap);
+    try {
+      const sourceFile = project.addSourceFileAtPath(filePath);
+      const replaced = rewriteSourceFile(sourceFile, keyMap);
 
-    if (replaced === 0) {
-      filesSkipped++;
-      if (!silent) console.log(`  — ${filePath} — aucune modification nécessaire`);
+      if (replaced === 0) {
+        filesSkipped++;
+        if (!silent) console.log(`  — ${filePath} — aucune modification nécessaire`);
+        project.removeSourceFile(sourceFile);
+        continue;
+      }
+
+      await copyFile(filePath, `${filePath}.backup`);
+      await sourceFile.save();
+
+      filesModified++;
+      totalReplaced += replaced;
+
+      if (!silent) {
+        const s = replaced > 1 ? 's' : '';
+        console.log(`  ✓ ${filePath} — ${replaced} string${s} remplacée${s}`);
+      }
+
       project.removeSourceFile(sourceFile);
-      continue;
+    } catch (err) {
+      filesSkipped++;
+      if (!silent) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.log(`  ⚠ ${filePath} — erreur, fichier ignoré (${msg})`);
+      }
     }
-
-    await copyFile(filePath, `${filePath}.backup`);
-    await sourceFile.save();
-
-    filesModified++;
-    totalReplaced += replaced;
-
-    if (!silent) {
-      const s = replaced > 1 ? 's' : '';
-      console.log(`  ✓ ${filePath} — ${replaced} string${s} remplacée${s}`);
-    }
-
-    project.removeSourceFile(sourceFile);
   }
 
   if (!silent) {

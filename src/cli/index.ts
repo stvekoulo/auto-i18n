@@ -5,6 +5,7 @@ import { readFile, access } from 'fs/promises';
 import { logger } from '../utils/logger.js';
 import { loadConfig, saveConfig, buildConfig, findMissingKeys, CONFIG_FILENAME } from '../utils/config.js';
 import { loadEnv, getApiKey, saveApiKeyToEnv, ensureGitignore } from '../utils/env.js';
+import { isPackageInstalled, installPackage, detectPackageManager } from '../utils/deps.js';
 import { askSourceLocale, askTargetLocales, askApiKey, askConfirmDryRun } from './prompts.js';
 import { scanProject } from '../scanner/index.js';
 import { generateMessages } from '../generator/index.js';
@@ -108,18 +109,44 @@ program
         logger.dim(`Déjà à jour : ${transResult.skipped.join(', ')}`);
       }
 
-      // 5. Réécriture des composants
+      // 5. Installation de next-intl si absent
+      logger.step('Vérification des dépendances');
+      const hasNextIntl = await isPackageInstalled(projectRoot, 'next-intl');
+      if (!hasNextIntl) {
+        const pm = await detectPackageManager(projectRoot);
+        logger.info(`Installation de next-intl via ${pm}…`);
+        try {
+          await installPackage(projectRoot, 'next-intl');
+          logger.success('next-intl installé');
+        } catch (installErr) {
+          logger.warn(
+            `Impossible d'installer next-intl automatiquement (${installErr instanceof Error ? installErr.message : String(installErr)})`,
+          );
+          logger.dim('Installez manuellement : npm install next-intl');
+        }
+      } else {
+        logger.success('next-intl déjà installé');
+      }
+
+      // 6. Réécriture des composants
       logger.step('Réécriture des composants');
       const filePaths = [...new Set(strings.map(s => s.filePath))];
-      const rwResult = await rewriteFiles(filePaths, {
-        keyMap: genResult.keyMap,
-        silent: true,
-      });
-      logger.success(
-        `${rwResult.totalReplaced} remplacements dans ${rwResult.filesModified} fichier${rwResult.filesModified > 1 ? 's' : ''}`,
-      );
+      try {
+        const rwResult = await rewriteFiles(filePaths, {
+          keyMap: genResult.keyMap,
+          silent: true,
+        });
+        logger.success(
+          `${rwResult.totalReplaced} remplacements dans ${rwResult.filesModified} fichier${rwResult.filesModified > 1 ? 's' : ''}`,
+        );
+      } catch (rwErr) {
+        logger.warn(
+          `Réécriture partielle (${rwErr instanceof Error ? rwErr.message : String(rwErr)})`,
+        );
+        logger.dim('Certains fichiers n\'ont pas pu être réécrits. Vérifiez manuellement.');
+      }
 
-      // 6. Injection config Next.js
+      // 7. Injection config Next.js
       logger.step('Configuration Next.js');
       const injResult = await injectAll({
         projectRoot,

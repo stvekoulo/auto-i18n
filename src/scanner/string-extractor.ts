@@ -33,6 +33,30 @@ export const TRANSLATABLE_ATTRIBUTES = new Set([
   'content',
 ]);
 
+/** Attributs JSX dont la valeur NE doit PAS être traduite (CSS, technique). */
+const NON_TRANSLATABLE_ATTRIBUTES = new Set([
+  'className', 'class', 'style', 'id', 'key', 'href', 'src', 'srcSet',
+  'type', 'name', 'value', 'htmlFor', 'data-testid', 'data-cy',
+  'action', 'method', 'encType', 'target', 'rel', 'role',
+]);
+
+/**
+ * Vérifie si un nœud est à l'intérieur d'un attribut JSX non traduisible
+ * (className, style, id, etc.).
+ */
+function isInsideNonTranslatableAttribute(node: Node): boolean {
+  let current = node.getParent();
+  while (current) {
+    if (Node.isJsxAttribute(current)) {
+      const name = current.getNameNode().getText();
+      return NON_TRANSLATABLE_ATTRIBUTES.has(name) || !TRANSLATABLE_ATTRIBUTES.has(name);
+    }
+    if (Node.isJsxElement(current) || Node.isJsxSelfClosingElement(current)) break;
+    current = current.getParent();
+  }
+  return false;
+}
+
 /**
  * Vérifie si un nœud est le premier argument d'un appel à `t(...)`.
  * Permet d'ignorer les strings déjà traduites.
@@ -95,6 +119,7 @@ export function extractStrings(sourceFile: SourceFile, filePath: string): Extrac
 
   for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.NoSubstitutionTemplateLiteral)) {
     if (isFirstArgOfTCall(node)) continue;
+    if (isInsideNonTranslatableAttribute(node)) continue;
     const value = node.getLiteralValue();
     if (!value.trim()) continue;
 
@@ -104,6 +129,7 @@ export function extractStrings(sourceFile: SourceFile, filePath: string): Extrac
 
   for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.TemplateExpression)) {
     if (isFirstArgOfTCall(node)) continue;
+    if (isInsideNonTranslatableAttribute(node)) continue;
 
     const variables: string[] = [];
     // getLiteralValue() retourne le texte brut du segment (compilerNode.text)

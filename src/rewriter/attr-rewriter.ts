@@ -33,8 +33,12 @@ export function rewriteAttributes(
     const key = keyMap.get(value);
     if (!key) continue;
 
-    initializer.replaceWithText(`{t("${key}")}`);
-    count++;
+    try {
+      initializer.replaceWithText(`{t("${key}")}`);
+      count++;
+    } catch {
+      // Skip attributes that can't be safely replaced
+    }
   }
 
   return count;
