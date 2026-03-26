@@ -312,7 +312,7 @@ describe('injectRouting', () => {
 describe('injectAll', () => {
   it("continue les étapes suivantes si une échoue", async () => {
     const dir = await makeTmpDir();
-    // Pas de layout.tsx → l'étape layout échoue
+    // Pas de layout.tsx → l'étape localeStructure et switcher échouent
     // Mais on met un next.config.ts pour que l'étape config réussisse
     await writeFile(join(dir, 'next.config.ts'), BASIC_CONFIG_TS);
 
@@ -323,14 +323,15 @@ describe('injectAll', () => {
       silent: true,
     });
 
-    // Layout échoue (pas de layout.tsx)
-    expect(result.layout.ok).toBe(false);
-    expect(result.layout.error).toBeDefined();
+    // localeStructure échoue (pas de layout.tsx)
+    expect(result.localeStructure.ok).toBe(false);
+    expect(result.localeStructure.error).toBeDefined();
     // Config réussit
     expect(result.config.ok).toBe(true);
-    // Middleware et routing sont créés
+    // Middleware, routing et request sont créés
     expect(result.middleware.ok).toBe(true);
     expect(result.routing.ok).toBe(true);
+    expect(result.request.ok).toBe(true);
   });
 
   it("retourne skipped=true pour les étapes déjà configurées", async () => {
@@ -350,9 +351,10 @@ describe('injectAll', () => {
       silent: true,
     });
 
-    expect(result.layout.skipped).toBe(true);
     expect(result.config.skipped).toBe(true);
     expect(result.middleware.skipped).toBe(true);
     expect(result.routing.skipped).toBe(true);
+    expect(result.request.skipped).toBe(true);
+    expect(result.localeStructure.skipped).toBe(true);
   });
 });

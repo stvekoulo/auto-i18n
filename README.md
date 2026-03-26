@@ -47,7 +47,9 @@ Et en quelques secondes :
 - Traduit automatiquement vers chaque langue cible
 - Installe `next-intl` automatiquement si absent
 - Remplace les strings en dur par `t("cle")`
-- Configure `layout.tsx`, `next.config`, `middleware.ts`, `i18n/routing.ts`
+- Configure `next.config`, `middleware.ts` (ou `proxy.ts` sur Next.js 16+)
+- Genere `i18n/routing.ts` + `i18n/request.ts` (requis pour les Server Components)
+- Cree la structure `app/[locale]/` requise par le App Router next-intl
 - Injecte un **Language Switcher flottant** (personnalisable) pour changer de langue
 
 ## Commandes
@@ -148,15 +150,17 @@ Chaque string devient une cle i18n normalisee :
 
 ### 5. Injection config Next.js
 
-- `layout.tsx` : ajoute `NextIntlClientProvider` + `getMessages()`
 - `next.config` : wrappe avec `createNextIntlPlugin`
-- `middleware.ts` : cree avec le routing i18n
+- `middleware.ts` / `proxy.ts` : routing i18n (proxy.ts si Next.js >= 16)
 - `i18n/routing.ts` : definit les locales
-- `LanguageSwitcher.tsx` : widget flottant pour changer de langue
+- `i18n/request.ts` : configuration `getRequestConfig` pour les Server Components
+- `app/[locale]/layout.tsx` : cree avec `NextIntlClientProvider` + `LanguageSwitcher`
+- `app/[locale]/page.tsx` : la page existante est deplacee ici
+- `app/layout.tsx` : simplifie en HTML shell (`<html><body>{children}</body></html>`)
 
 ### 6. Language Switcher
 
-Un composant flottant est automatiquement genere et injecte dans votre layout. Personnalisable via `SWITCHER_CONFIG` dans `components/LanguageSwitcher.tsx` : position, theme (light/dark), couleur d'accent, offset.
+Un composant flottant est automatiquement genere dans `components/LanguageSwitcher.tsx` et inclus dans `app/[locale]/layout.tsx` (dans le provider). Personnalisable via `SWITCHER_CONFIG` : position, theme (light/dark), couleur d'accent, offset.
 
 ## Securite
 

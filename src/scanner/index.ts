@@ -1,5 +1,5 @@
 import { readdir } from 'fs/promises';
-import { join, extname } from 'path';
+import { join, extname, relative } from 'path';
 import { parseFile } from './ast-parser.js';
 import { extractStrings, type ExtractedString } from './string-extractor.js';
 import { shouldIgnore, type FilterOptions } from './filters.js';
@@ -11,6 +11,13 @@ const SCANNABLE_EXTENSIONS = new Set(['.tsx', '.jsx', '.ts', '.js', '.mjs']);
 const DEFAULT_IGNORE_DIRS = new Set([
   'node_modules', '.next', '.git', 'dist', 'build', 'out',
   '.turbo', '.cache', 'coverage', '.vercel', 'public',
+  'i18n', 'messages',
+]);
+
+/** Fichiers générés par next-auto-i18n — jamais scannés ni réécrits. */
+const GENERATED_FILES = new Set([
+  'LanguageSwitcher.tsx',
+  'LanguageSwitcher.jsx',
 ]);
 
 const CONFIG_FILE_NAMES = new Set([
@@ -25,18 +32,42 @@ const CONFIG_FILE_NAMES = new Set([
   'prettier.config.js', 'prettier.config.ts',
 ]);
 
+/**
+ * Dossiers Next.js conventionnels contenant des composants.
+ * Les fichiers en dehors de ces dossiers (ex: scripts .mjs à la racine) sont ignorés.
+ */
+const NEXT_APP_DIRS = new Set([
+  'app', 'src', 'pages', 'components', 'lib', 'hooks', 'utils',
+]);
+
 export interface ScanOptions {
   ignoreDirs?: string[];
   ignoreFiles?: string[];
+  /** Glob patterns à ignorer (ex: '**\/*.test.*') */
+  ignorePatterns?: string[];
   filter?: FilterOptions;
+}
+
+/**
+ * Convertit un glob pattern simple en RegExp.
+ * Supporte uniquement ** et * (couvre les cas courants).
+ */
+function globToRegex(pattern: string): RegExp {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*/g, '{{GLOBSTAR}}')
+    .replace(/\*/g, '[^/]*')
+    .replace(/\{\{GLOBSTAR\}\}/g, '.*');
+  return new RegExp(`^${escaped}$`);
 }
 
 async function collectFiles(rootDir: string, options: ScanOptions): Promise<string[]> {
   const ignoreDirs = new Set([...DEFAULT_IGNORE_DIRS, ...(options.ignoreDirs ?? [])]);
   const ignoreFiles = new Set(options.ignoreFiles ?? []);
+  const ignoreRegexes = (options.ignorePatterns ?? []).map(globToRegex);
   const files: string[] = [];
 
-  async function walk(dir: string): Promise<void> {
+  async function walk(dir: string, depth: number): Promise<void> {
     let entries;
     try {
       entries = await readdir(dir, { withFileTypes: true });
@@ -50,7 +81,9 @@ async function collectFiles(rootDir: string, options: ScanOptions): Promise<stri
       const fullPath = join(dir, entry.name);
 
       if (entry.isDirectory()) {
-        await walk(fullPath);
+        // À la racine du projet, ne descendre que dans les dossiers Next.js conventionnels
+        if (depth === 0 && !NEXT_APP_DIRS.has(entry.name)) continue;
+        await walk(fullPath, depth + 1);
         continue;
       }
 
@@ -58,14 +91,21 @@ async function collectFiles(rootDir: string, options: ScanOptions): Promise<stri
       if (!SCANNABLE_EXTENSIONS.has(extname(entry.name))) continue;
       if (CONFIG_FILE_NAMES.has(entry.name)) continue;
       if (ignoreFiles.has(entry.name)) continue;
+      if (GENERATED_FILES.has(entry.name)) continue;
       if (entry.name.includes('.test.') || entry.name.includes('.spec.')) continue;
       if (entry.name.startsWith('.')) continue;
+
+      // Vérifier les glob patterns (chemin relatif depuis la racine)
+      if (ignoreRegexes.length > 0) {
+        const relPath = relative(rootDir, fullPath).replace(/\\/g, '/');
+        if (ignoreRegexes.some(re => re.test(relPath) || re.test(entry.name))) continue;
+      }
 
       files.push(fullPath);
     }
   }
 
-  await walk(rootDir);
+  await walk(rootDir, 0);
   return files;
 }
 

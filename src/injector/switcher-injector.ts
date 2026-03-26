@@ -1,4 +1,4 @@
-import { writeFile, readFile, mkdir, access } from 'fs/promises';
+import { writeFile, mkdir, access } from 'fs/promises';
 import { join } from 'path';
 import { findLayoutFile } from './layout-injector.js';
 
@@ -76,7 +76,7 @@ export function LanguageSwitcher() {
   const pathname = usePathname();
   const router = useRouter();
 
-  const locales = routing.locales as string[];
+  const locales = [...routing.locales] as string[];
   const segments = pathname.split('/');
   const currentLocale = locales.includes(segments[1])
     ? segments[1]
@@ -288,42 +288,13 @@ export function LanguageSwitcher() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Layout injection (add <LanguageSwitcher /> + import)                */
-/* ------------------------------------------------------------------ */
-
-async function injectSwitcherIntoLayout(
-  layoutPath: string,
-  useSrc: boolean,
-): Promise<boolean> {
-  let content = await readFile(layoutPath, 'utf-8');
-
-  // Already present?
-  if (content.includes('LanguageSwitcher')) return false;
-
-  // 1. Add import after the last existing import statement
-  const importLine = `import { LanguageSwitcher } from '../components/LanguageSwitcher';\n`;
-  const lastImportIdx = content.lastIndexOf('\nimport ');
-  if (lastImportIdx !== -1) {
-    const endOfLine = content.indexOf('\n', lastImportIdx + 1);
-    content = content.slice(0, endOfLine + 1) + importLine + content.slice(endOfLine + 1);
-  } else {
-    content = importLine + content;
-  }
-
-  // 2. Insert <LanguageSwitcher /> before </body>
-  content = content.replace(
-    '</body>',
-    '        <LanguageSwitcher />\n      </body>',
-  );
-
-  await writeFile(layoutPath, content, 'utf-8');
-  return true;
-}
-
-/* ------------------------------------------------------------------ */
 /*  Public API                                                         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Génère le composant LanguageSwitcher.tsx dans le projet cible.
+ * L'import dans le layout est géré par locale-structure-injector.
+ */
 export async function injectLanguageSwitcher(
   projectRoot: string,
   options: { silent?: boolean } = {},
@@ -358,9 +329,6 @@ export async function injectLanguageSwitcher(
   // Write the component file
   await writeFile(switcherPath, buildSwitcherComponent(routingImportPath), 'utf-8');
 
-  // Inject into layout
-  await injectSwitcherIntoLayout(layoutPath, useSrc);
-
-  if (!options.silent) console.log(`  ✓ ${switcherPath} — créé et injecté dans layout`);
+  if (!options.silent) console.log(`  ✓ ${switcherPath} — créé`);
   return { modified: true, skipped: false, filePath: switcherPath };
 }

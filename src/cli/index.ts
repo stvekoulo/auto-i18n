@@ -65,7 +65,9 @@ program
 
       // 2. Scan
       logger.step('Scan du projet');
-      const strings = await scanProject(projectRoot);
+      const strings = await scanProject(projectRoot, {
+        ignorePatterns: config.ignore,
+      });
       logger.success(`${strings.length} strings trouvées`);
 
       if (strings.length === 0) {
@@ -155,9 +157,6 @@ program
         silent: true,
       });
 
-      if (injResult.layout.ok) logger.success('layout.tsx configuré');
-      else if (injResult.layout.error) logger.warn(`layout.tsx — ${injResult.layout.error}`);
-
       if (injResult.config.ok) logger.success('next.config configuré');
       else if (injResult.config.error) logger.warn(`next.config — ${injResult.config.error}`);
 
@@ -168,8 +167,14 @@ program
 
       if (injResult.routing.ok) logger.success('i18n/routing.ts créé');
 
-      if (injResult.switcher.ok) logger.success('LanguageSwitcher injecté');
+      if (injResult.request.ok) logger.success('i18n/request.ts créé');
+      else if (injResult.request.error) logger.warn(`i18n/request.ts — ${injResult.request.error}`);
+
+      if (injResult.switcher.ok) logger.success('LanguageSwitcher créé');
       else if (injResult.switcher.error) logger.warn(`LanguageSwitcher — ${injResult.switcher.error}`);
+
+      if (injResult.localeStructure.ok) logger.success('app/[locale]/ structuré');
+      else if (injResult.localeStructure.error) logger.warn(`app/[locale]/ — ${injResult.localeStructure.error}`);
 
       // Terminé
       logger.blank();
@@ -200,7 +205,9 @@ program
 
       // Re-scan
       logger.step('Scan du projet');
-      const strings = await scanProject(projectRoot);
+      const strings = await scanProject(projectRoot, {
+        ignorePatterns: config.ignore,
+      });
       logger.success(`${strings.length} strings trouvées`);
 
       if (strings.length === 0) {

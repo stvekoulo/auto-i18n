@@ -117,12 +117,19 @@ npx next-auto-i18n init
 ▸ Rewriting components
   ✓ 47 replacements in 12 files
 
+▸ Checking dependencies
+  ✓ next-intl installed
+
+▸ Rewriting components
+  ✓ 47 replacements in 12 files
+
 ▸ Configuring Next.js
-  ✓ layout.tsx configured
   ✓ next.config configured
   ✓ middleware.ts created
   ✓ i18n/routing.ts created
-  ✓ LanguageSwitcher injected
+  ✓ i18n/request.ts created
+  ✓ LanguageSwitcher created
+  ✓ app/[locale]/ structured
 
   ✓ Internationalization configured successfully!
   Languages: fr → en, es
@@ -346,16 +353,53 @@ npx next-auto-i18n init
         ▼
 ┌──────────────────────────────────────┐
 │  7. Next.js Config Injection         │
-│     • layout.tsx → NextIntlClientProvider  │
 │     • next.config → createNextIntlPlugin   │
-│     • middleware.ts → routing               │
-│     • i18n/routing.ts → locale definitions │
-│     • LanguageSwitcher → floating widget   │
+│     • middleware.ts or proxy.ts            │
+│     • i18n/routing.ts → locale list        │
+│     • i18n/request.ts → Server Components  │
+│     • LanguageSwitcher.tsx → widget        │
+│     • app/[locale]/layout.tsx → provider   │
+│     • app/[locale]/page.tsx (moved)        │
+│     • app/layout.tsx → HTML shell          │
 └──────────────────────────────────────┘
         │
         ▼
    ✓ i18n-ready site with language switcher
 ```
+
+### Generated Project Structure
+
+After running `next-auto-i18n init`, your project will have this structure:
+
+```
+your-project/
+├── app/
+│   ├── layout.tsx              ← Simplified to HTML shell (<html><body>{children}</body></html>)
+│   ├── globals.css             ← Untouched
+│   └── [locale]/
+│       ├── layout.tsx          ← NEW — NextIntlClientProvider + LanguageSwitcher
+│       └── page.tsx            ← Moved from app/page.tsx
+│
+├── components/
+│   └── LanguageSwitcher.tsx    ← NEW — floating language switcher widget
+│
+├── i18n/
+│   ├── routing.ts              ← NEW — locale definitions
+│   └── request.ts              ← NEW — Server Component config (getRequestConfig)
+│
+├── messages/
+│   ├── fr.json                 ← NEW — source language keys
+│   ├── en.json                 ← NEW — translated
+│   └── es.json                 ← NEW — translated
+│
+├── middleware.ts               ← NEW — i18n routing (proxy.ts on Next.js >= 16)
+├── next.config.ts              ← Modified — wrapped with createNextIntlPlugin
+└── auto-i18n.config.json       ← NEW — tool configuration
+```
+
+All modified files have a `.backup` copy created automatically before any change.
+
+---
 
 ### AST Scanning
 
@@ -736,10 +780,16 @@ next-auto-i18n/
 │   ├── generator/        # Key generation + JSON file creation
 │   ├── translator/       # DeepL API client + translation orchestration
 │   ├── rewriter/         # JSX/attribute rewriting via AST
-│   ├── injector/         # Next.js config injection (layout, config, middleware, routing, switcher)
+│   ├── injector/         # Next.js config injection:
+│   │   ├── config-injector.ts         # next.config wrapping
+│   │   ├── middleware-injector.ts     # middleware.ts / proxy.ts
+│   │   ├── routing-injector.ts        # i18n/routing.ts
+│   │   ├── request-injector.ts        # i18n/request.ts
+│   │   ├── switcher-injector.ts       # LanguageSwitcher component
+│   │   ├── locale-structure-injector.ts  # app/[locale]/ structure
+│   │   └── layout-injector.ts         # layout utilities
 │   └── utils/            # Config, env, logger, dependency utilities
 ├── tests/                # Vitest test suites (298 tests)
-├── auto-i18n-specs.md    # Project specifications
 └── DOCUMENTATION.md      # This file
 ```
 
@@ -783,6 +833,11 @@ The test suite covers all modules:
 - [x] `next-auto-i18n missing` — report untranslated keys
 - [x] Floating language switcher widget (auto-injected, customizable)
 - [x] Automatic `next-intl` dependency installation
+- [x] `app/[locale]/` structure auto-creation (required by next-intl App Router)
+- [x] `i18n/request.ts` generation (required for Server Components)
+- [x] Dynamic `<html lang>` attribute
+- [x] Next.js 16 `proxy.ts` detection
+- [x] Scan scope limited to Next.js conventional directories
 - [ ] `--watch` mode — auto-sync on file changes
 - [ ] Support for Vite + React (without Next.js)
 - [ ] Custom key naming strategies
