@@ -1,6 +1,6 @@
 {
   "name": "next-auto-i18n",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Automatically translate your Next.js project in under 5 minutes",
   "type": "module",
   "main": "./dist/cli/index.js",
