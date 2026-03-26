@@ -15,7 +15,7 @@ import { injectAll } from '../injector/index.js';
 const program = new Command();
 
 program
-  .name('auto-i18n')
+  .name('next-auto-i18n')
   .description("Automatise l'internationalisation d'un projet React / Next.js")
   .version('0.1.0');
 

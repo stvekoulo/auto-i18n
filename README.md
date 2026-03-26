@@ -1,19 +1,19 @@
-# auto-i18n
+# next-auto-i18n
 
 > Automatise l'internationalisation d'un projet React / Next.js en une seule commande.
 
-**auto-i18n** scanne votre code, extrait les strings traduisibles, les traduit via DeepL, et reconfigure votre projet pour utiliser [next-intl](https://next-intl-docs.vercel.app/) — sans intervention manuelle.
+**next-auto-i18n** scanne votre code, extrait les strings traduisibles, les traduit via DeepL, et reconfigure votre projet pour utiliser [next-intl](https://next-intl-docs.vercel.app/) — sans intervention manuelle.
 
 ## Installation
 
 ```bash
-npm install -D auto-i18n
+npm install -D next-auto-i18n
 ```
 
 Ou directement via npx :
 
 ```bash
-npx auto-i18n init
+npx next-auto-i18n init
 ```
 
 ## Pre-requis
@@ -25,7 +25,7 @@ npx auto-i18n init
 ## Utilisation rapide
 
 ```bash
-npx auto-i18n init
+npx next-auto-i18n init
 ```
 
 Le CLI vous guide interactivement :
@@ -44,38 +44,38 @@ Et en quelques secondes :
 
 ## Commandes
 
-### `auto-i18n init`
+### `next-auto-i18n init`
 
 Initialisation complete du projet.
 
 ```bash
-auto-i18n init              # mode interactif
-auto-i18n init --dry-run    # preview sans modification
-auto-i18n init --locale en,es,de  # langues cibles en ligne de commande
+next-auto-i18n init              # mode interactif
+next-auto-i18n init --dry-run    # preview sans modification
+next-auto-i18n init --locale en,es,de  # langues cibles en ligne de commande
 ```
 
-### `auto-i18n sync`
+### `next-auto-i18n sync`
 
 Rescanne le projet et traduit les nouvelles strings (mode incrementiel).
 
 ```bash
-auto-i18n sync
+next-auto-i18n sync
 ```
 
-### `auto-i18n add-locale <locale>`
+### `next-auto-i18n add-locale <locale>`
 
 Ajoute une nouvelle langue et traduit toutes les cles existantes.
 
 ```bash
-auto-i18n add-locale ar
+next-auto-i18n add-locale ar
 ```
 
-### `auto-i18n missing`
+### `next-auto-i18n missing`
 
 Affiche les cles non traduites par langue.
 
 ```bash
-auto-i18n missing
+next-auto-i18n missing
 ```
 
 ## Configuration
@@ -155,8 +155,8 @@ Chaque string devient une cle i18n normalisee :
 ## Developpement
 
 ```bash
-git clone https://github.com/votre-user/auto-i18n.git
-cd auto-i18n
+git clone https://github.com/stevenkoulo/next-auto-i18n.git
+cd next-auto-i18n
 npm install
 npm test        # vitest
 npm run build   # tsc

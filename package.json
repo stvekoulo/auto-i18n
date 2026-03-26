@@ -1,29 +1,49 @@
 {
-  "name": "auto-i18n",
+  "name": "next-auto-i18n",
   "version": "0.1.0",
-  "description": "CLI pour automatiser l'internationalisation dans un projet React / Next.js",
+  "description": "Automatically translate your Next.js project in under 5 minutes",
   "type": "module",
+  "main": "./dist/cli/index.js",
   "bin": {
-    "auto-i18n": "./dist/cli/index.js"
+    "next-auto-i18n": "./dist/cli/index.js"
   },
   "scripts": {
     "dev": "tsx src/cli/index.ts",
     "build": "tsc",
-    "test": "vitest"
+    "test": "vitest",
+    "prepublishOnly": "npm run build"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md",
+    "LICENSE",
+    "DOCUMENTATION.md"
   ],
   "keywords": [
     "i18n",
+    "nextjs",
     "next.js",
     "react",
-    "cli",
     "translation",
-    "deepl"
+    "cli",
+    "deepl",
+    "next-intl",
+    "internationalization",
+    "localization"
   ],
-  "author": "",
+  "author": "Steven KOULO",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/stevenkoulo/next-auto-i18n.git"
+  },
+  "homepage": "https://github.com/stevenkoulo/next-auto-i18n#readme",
+  "bugs": {
+    "url": "https://github.com/stevenkoulo/next-auto-i18n/issues"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@babel/parser": "^7.24.0",
     "@babel/types": "^7.24.0",
