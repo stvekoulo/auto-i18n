@@ -5,7 +5,7 @@ import { readFile, access } from 'fs/promises';
 import { logger } from '../utils/logger.js';
 import { loadConfig, saveConfig, buildConfig, findMissingKeys, CONFIG_FILENAME } from '../utils/config.js';
 import { loadEnv, getApiKey, saveApiKeyToEnv, ensureGitignore } from '../utils/env.js';
-import { isPackageInstalled, installPackage, detectPackageManager } from '../utils/deps.js';
+import { isPackageInstalled } from '../utils/deps.js';
 import { askSourceLocale, askTargetLocales, askApiKey, askConfirmDryRun } from './prompts.js';
 import { scanProject } from '../scanner/index.js';
 import { generateMessages } from '../generator/index.js';
@@ -111,23 +111,14 @@ program
         logger.dim(`Déjà à jour : ${transResult.skipped.join(', ')}`);
       }
 
-      // 5. Installation de next-intl si absent
+      // 5. Vérification de next-intl (installé via peerDependencies)
       logger.step('Vérification des dépendances');
       const hasNextIntl = await isPackageInstalled(projectRoot, 'next-intl');
       if (!hasNextIntl) {
-        const pm = await detectPackageManager(projectRoot);
-        logger.info(`Installation de next-intl via ${pm}…`);
-        try {
-          await installPackage(projectRoot, 'next-intl');
-          logger.success('next-intl installé');
-        } catch (installErr) {
-          logger.warn(
-            `Impossible d'installer next-intl automatiquement (${installErr instanceof Error ? installErr.message : String(installErr)})`,
-          );
-          logger.dim('Installez manuellement : npm install next-intl');
-        }
+        logger.warn('next-intl non trouvé — il devrait être installé automatiquement via peerDependencies');
+        logger.dim('Si ce n\'est pas le cas, installez manuellement : npm install next-intl');
       } else {
-        logger.success('next-intl déjà installé');
+        logger.success('next-intl installé');
       }
 
       // 6. Réécriture des composants

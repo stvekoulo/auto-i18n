@@ -54,6 +54,14 @@
     "ora": "^9.3.0",
     "ts-morph": "^22.0.0"
   },
+  "peerDependencies": {
+    "next-intl": ">=3.0.0"
+  },
+  "peerDependenciesMeta": {
+    "next-intl": {
+      "optional": false
+    }
+  },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/react": "^19.2.14",
