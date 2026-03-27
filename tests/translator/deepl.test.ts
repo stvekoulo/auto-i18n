@@ -138,6 +138,24 @@ describe('translate — préservation des placeholders {varname}', () => {
     expect(result[0]).toBe('Hello {name}!');
   });
 
+  it('restaure les entités &apos; et &quot; retournées par DeepL', async () => {
+    mockSuccess(["It&apos;s an exception"]);
+    const result = await translate(["C'est une exception"], 'EN');
+    expect(result[0]).toBe("It's an exception");
+  });
+
+  it('restaure &#39; et &#x27; retournées par DeepL', async () => {
+    mockSuccess(["It&#39;s a test &#x27;value&#x27;"]);
+    const result = await translate(["C'est un test 'value'"], 'EN');
+    expect(result[0]).toBe("It's a test 'value'");
+  });
+
+  it('restaure &quot; retourné par DeepL', async () => {
+    mockSuccess(['Say &quot;hello&quot;']);
+    const result = await translate(['Dis "bonjour"'], 'EN');
+    expect(result[0]).toBe('Say "hello"');
+  });
+
   it('échappe les caractères XML spéciaux dans le texte libre', async () => {
     mockSuccess(['Price &amp; <x>count</x> items']);
     await translate(['Prix & {count} articles'], 'EN');

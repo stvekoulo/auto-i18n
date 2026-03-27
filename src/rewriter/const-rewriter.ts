@@ -2,10 +2,6 @@ import {
   type SourceFile,
   SyntaxKind,
   Node,
-  type FunctionDeclaration,
-  type ArrowFunction,
-  type FunctionExpression,
-  type VariableStatement,
 } from 'ts-morph';
 
 /**
@@ -18,7 +14,28 @@ const TECHNICAL_PROPERTY_NAMES = new Set([
   'as', 'component', 'testId', 'dataTestId', 'data-testid', 'data-cy',
   'path', 'route', 'url', 'pattern', 'regex', 'format', 'encoding',
   'charset', 'mime', 'mimeType', 'contentType',
+  'orientation', 'direction', 'align', 'justify', 'decorative',
+  'backgroundColor', 'borderColor', 'borderRadius', 'border',
+  'fontWeight', 'fontSize', 'fontFamily', 'lineHeight',
+  'width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight',
+  'padding', 'margin', 'gap', 'display', 'position', 'overflow',
 ]);
+
+/** Vérifie si un nœud est à l'intérieur d'un corps de fonction. */
+function hasEnclosingFunction(node: Node): boolean {
+  let current = node.getParent();
+  while (current) {
+    if (
+      Node.isFunctionDeclaration(current) ||
+      Node.isArrowFunction(current) ||
+      Node.isFunctionExpression(current)
+    ) {
+      return true;
+    }
+    current = current.getParent();
+  }
+  return false;
+}
 
 /**
  * Vérifie si un StringLiteral est dans un contexte non réécrivable.
@@ -26,6 +43,9 @@ const TECHNICAL_PROPERTY_NAMES = new Set([
 function isNonRewritableContext(node: Node): boolean {
   const parent = node.getParent();
   if (!parent) return true;
+
+  // ── Ne jamais réécrire au module-scope (t() inaccessible) ──
+  if (!hasEnclosingFunction(node)) return true;
 
   // Clé de propriété (pas la valeur)
   if (Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return true;
@@ -36,23 +56,36 @@ function isNonRewritableContext(node: Node): boolean {
     if (TECHNICAL_PROPERTY_NAMES.has(propName)) return true;
   }
 
+  // Valeur par défaut d'un paramètre : function foo(x = "default")
+  if (parent.getKind() === SyntaxKind.Parameter) return true;
+
+  // Valeur par défaut de destructuring : const { x = "default" } = props
+  if (parent.getKind() === SyntaxKind.BindingElement) return true;
+
   // new Error(), etc.
   if (Node.isNewExpression(parent)) return true;
 
-  // console.*, require(), etc.
+  // Appels à des fonctions techniques ou CSS utilities
   if (Node.isCallExpression(parent)) {
     const callee = parent.getExpression().getText();
     if (/^(console\.\w+|require|Error|JSON\.\w+|parseInt|parseFloat|fetch|addEventListener|removeEventListener)$/.test(callee)) return true;
     if (/^t$|^translate$/.test(callee)) return true;
+    // CSS utility functions (shadcn/tailwind)
+    if (/^(cva|cn|clsx|twMerge|classNames|classnames|css|styled|tv)$/.test(callee)) return true;
   }
 
-  // Remonter l'arbre
+  // Arguments d'un appel à cva/cn/clsx (peut être imbriqué)
   let current: Node | undefined = parent;
   while (current) {
     if (Node.isImportDeclaration(current) || Node.isExportDeclaration(current)) return true;
     if (Node.isTypeAliasDeclaration(current) || Node.isInterfaceDeclaration(current)) return true;
     if (Node.isEnumDeclaration(current)) return true;
     if (Node.isJsxAttribute(current)) return true;
+    // Remonter les appels cva/cn imbriqués
+    if (Node.isCallExpression(current)) {
+      const callee = current.getExpression().getText();
+      if (/^(cva|cn|clsx|twMerge|classNames|classnames|css|styled|tv)$/.test(callee)) return true;
+    }
     current = current.getParent();
   }
 
@@ -61,7 +94,7 @@ function isNonRewritableContext(node: Node): boolean {
 
 /**
  * Remplace les StringLiteral traduisibles par t("clé").
- * Cible les valeurs dans les objets/tableaux/variables (hors JSX, déjà géré).
+ * Ne touche QUE les strings à l'intérieur de fonctions (pas module-scope).
  * Retourne le nombre de remplacements effectués.
  */
 export function rewriteStringLiterals(
@@ -88,130 +121,4 @@ export function rewriteStringLiterals(
   }
 
   return count;
-}
-
-type FunctionLike = FunctionDeclaration | ArrowFunction | FunctionExpression;
-
-/** Vérifie si un nœud a une fonction parente. */
-function hasEnclosingFunction(node: Node): boolean {
-  let current = node.getParent();
-  while (current) {
-    if (
-      Node.isFunctionDeclaration(current) ||
-      Node.isArrowFunction(current) ||
-      Node.isFunctionExpression(current)
-    ) {
-      return true;
-    }
-    current = current.getParent();
-  }
-  return false;
-}
-
-/**
- * Trouve la fonction composant React (default export ou première fonction avec du JSX).
- */
-function findComponentFunction(sourceFile: SourceFile): FunctionLike | null {
-  // 1. Chercher un default export function
-  for (const fn of sourceFile.getFunctions()) {
-    if (fn.isDefaultExport()) return fn;
-  }
-
-  // 2. Chercher une variable déclarée avec default export et arrow/function expression
-  const defaultExport = sourceFile
-    .getDescendantsOfKind(SyntaxKind.ExportAssignment)
-    .find(e => !e.isExportEquals());
-
-  if (defaultExport) {
-    const expr = defaultExport.getExpression();
-    if (Node.isIdentifier(expr)) {
-      const name = expr.getText();
-      const varDecl = sourceFile.getVariableDeclaration(name);
-      if (varDecl) {
-        const init = varDecl.getInitializer();
-        if (init && (Node.isArrowFunction(init) || Node.isFunctionExpression(init))) {
-          return init;
-        }
-      }
-      // Named function declaration
-      const fn = sourceFile.getFunction(name);
-      if (fn) return fn;
-    }
-  }
-
-  // 3. Première fonction qui contient du JSX
-  for (const fn of sourceFile.getFunctions()) {
-    if (
-      fn.getDescendantsOfKind(SyntaxKind.JsxElement).length > 0 ||
-      fn.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).length > 0
-    ) {
-      return fn;
-    }
-  }
-
-  for (const varDecl of sourceFile.getVariableDeclarations()) {
-    const init = varDecl.getInitializer();
-    if (!init) continue;
-    if (!Node.isArrowFunction(init) && !Node.isFunctionExpression(init)) continue;
-    if (
-      init.getDescendantsOfKind(SyntaxKind.JsxElement).length > 0 ||
-      init.getDescendantsOfKind(SyntaxKind.JsxSelfClosingElement).length > 0
-    ) {
-      return init;
-    }
-  }
-
-  return null;
-}
-
-/**
- * Déplace les VariableStatement du scope module qui contiennent des appels t()
- * à l'intérieur du corps de la fonction composant React.
- *
- * Cela garantit que t() est accessible (injecté ensuite par injectTDeclarations).
- */
-export function hoistModuleScopeVars(sourceFile: SourceFile): number {
-  // Trouver tous les t() calls au scope module (pas de fonction parente)
-  const tCalls = sourceFile
-    .getDescendantsOfKind(SyntaxKind.CallExpression)
-    .filter(c => c.getExpression().getText() === 't' && !hasEnclosingFunction(c));
-
-  if (tCalls.length === 0) return 0;
-
-  // Identifier les VariableStatement parents de ces appels
-  const statementsToMove = new Map<number, VariableStatement>();
-  for (const call of tCalls) {
-    let current: Node | undefined = call.getParent();
-    while (current) {
-      if (Node.isVariableStatement(current)) {
-        statementsToMove.set(current.getStart(), current);
-        break;
-      }
-      if (Node.isSourceFile(current)) break;
-      current = current.getParent();
-    }
-  }
-
-  if (statementsToMove.size === 0) return 0;
-
-  // Trouver la fonction composant
-  const componentFn = findComponentFunction(sourceFile);
-  if (!componentFn) return 0;
-
-  const bodyNode = componentFn.getBody();
-  if (!bodyNode || !Node.isBlock(bodyNode)) return 0;
-
-  // Récupérer le texte des statements à déplacer (en ordre de position)
-  const sorted = [...statementsToMove.entries()].sort(([a], [b]) => a - b);
-  const texts = sorted.map(([, stmt]) => stmt.getText());
-
-  // Supprimer les statements originaux (en ordre inverse pour préserver les positions)
-  for (const [, stmt] of [...sorted].reverse()) {
-    stmt.remove();
-  }
-
-  // Insérer dans le corps du composant (position 0 — avant le reste)
-  bodyNode.insertStatements(0, texts);
-
-  return texts.length;
 }

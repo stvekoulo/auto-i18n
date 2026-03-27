@@ -43,13 +43,27 @@ export async function injectLocaleStructure(
 
   const localeDir = join(appDir, '[locale]');
 
-  // Si le dossier [locale] existe déjà, on skip
+  // Si le dossier [locale] existe déjà, vérifier si le layout a le LanguageSwitcher
+  let localeExists = false;
   try {
     await access(localeDir);
-    if (!options.silent) console.log(`  — ${localeDir} — déjà présent`);
-    return { modified: false, skipped: true, movedFiles: [] };
+    localeExists = true;
   } catch {
     /* n'existe pas → on le crée */
+  }
+
+  if (localeExists) {
+    // Même si [locale]/ existe, s'assurer que layout.tsx contient LanguageSwitcher
+    const localeLayoutPath = join(localeDir, 'layout.tsx');
+    const switcherImportPath = '../../components/LanguageSwitcher';
+    const routingImportPath = '../../i18n/routing';
+    const patched = await ensureLocaleLayoutHasSwitcher(localeLayoutPath, routingImportPath, switcherImportPath);
+    if (patched) {
+      if (!options.silent) console.log(`  ✓ ${localeLayoutPath} — LanguageSwitcher injecté`);
+      return { modified: true, skipped: false, movedFiles: [] };
+    }
+    if (!options.silent) console.log(`  — ${localeDir} — déjà présent`);
+    return { modified: false, skipped: true, movedFiles: [] };
   }
 
   await mkdir(localeDir, { recursive: true });
@@ -88,6 +102,48 @@ export async function injectLocaleStructure(
   return { modified: true, skipped: false, movedFiles };
 }
 
+/**
+ * Vérifie si un [locale]/layout.tsx existant contient le LanguageSwitcher.
+ * Si non, l'injecte (import + composant dans le JSX).
+ * Retourne true si le fichier a été modifié.
+ */
+async function ensureLocaleLayoutHasSwitcher(
+  layoutPath: string,
+  routingImportPath: string,
+  switcherImportPath: string,
+): Promise<boolean> {
+  let content: string;
+  try {
+    content = await readFile(layoutPath, 'utf-8');
+  } catch {
+    // Le layout n'existe pas du tout → le créer
+    await writeFile(layoutPath, buildLocaleLayout(routingImportPath, switcherImportPath), 'utf-8');
+    return true;
+  }
+
+  if (content.includes('LanguageSwitcher')) return false; // Déjà présent
+
+  // Ajouter l'import
+  const importLine = `import { LanguageSwitcher } from '${switcherImportPath}';\n`;
+  const lastImportIdx = content.lastIndexOf('import ');
+  if (lastImportIdx >= 0) {
+    const lineEnd = content.indexOf('\n', lastImportIdx);
+    content = content.slice(0, lineEnd + 1) + importLine + content.slice(lineEnd + 1);
+  } else {
+    content = importLine + content;
+  }
+
+  // Ajouter <LanguageSwitcher /> avant la fermeture du provider ou avant </div>
+  const closingTag = content.includes('</NextIntlClientProvider>')
+    ? '</NextIntlClientProvider>'
+    : '</div>';
+  content = content.replace(closingTag, `  <LanguageSwitcher />\n    ${closingTag}`);
+
+  await copyFile(layoutPath, `${layoutPath}.backup`);
+  await writeFile(layoutPath, content, 'utf-8');
+  return true;
+}
+
 function buildLocaleLayout(routingImportPath: string, switcherImportPath: string): string {
   return `import { NextIntlClientProvider } from 'next-intl';
 import { getMessages } from 'next-intl/server';
@@ -104,7 +160,7 @@ export default async function LocaleLayout({
 }) {
   const { locale } = await params;
 
-  if (!routing.locales.includes(locale as any)) {
+  if (!routing.locales.includes(locale as typeof routing.locales[number])) {
     notFound();
   }
 

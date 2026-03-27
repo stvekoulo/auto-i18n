@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { parseSource } from '../../src/scanner/ast-parser';
 import { rewriteJsxText, rewriteNoSubstitutionTemplateLiterals, rewriteTemplateExpressions } from '../../src/rewriter/jsx-rewriter';
 import { rewriteAttributes } from '../../src/rewriter/attr-rewriter';
-import { rewriteStringLiterals, hoistModuleScopeVars } from '../../src/rewriter/const-rewriter';
+import { rewriteStringLiterals } from '../../src/rewriter/const-rewriter';
 import {
   isClientComponent,
   injectTDeclarations,
@@ -104,7 +104,7 @@ describe('rewriteTemplateExpressions', () => {
 
   it('remplace avec plusieurs variables', () => {
     const sf = src(`
-      function Msg({ count, name }: any) {
+      function Msg({ count, name }: { count: number; name: string }) {
         return <p>{\`\${count} messages pour \${name}\`}</p>;
       }
     `);
@@ -116,7 +116,7 @@ describe('rewriteTemplateExpressions', () => {
 
   it('ignore les template expressions absents du keyMap', () => {
     const sf = src(`
-      function Page({ name }: any) { return <p>{\`Hello \${name}\`}</p>; }
+      function Page({ name }: { name: string }) { return <p>{\`Hello \${name}\`}</p>; }
     `);
     const count = rewriteTemplateExpressions(sf, new Map());
     expect(count).toBe(0);
@@ -342,10 +342,12 @@ describe('rewriteSourceFile', () => {
 });
 
 describe('rewriteStringLiterals', () => {
-  it('remplace un string literal dans une propriété d\'objet', () => {
+  it('remplace un string literal dans une propriété d\'objet (function-scope)', () => {
     const sf = src(`
-      const data = [{ title: "Bienvenue" }];
-      export default function Page() { return <div />; }
+      export default function Page() {
+        const data = [{ title: "Bienvenue" }];
+        return <div />;
+      }
     `);
     const keyMap = new Map([['Bienvenue', 'bienvenue']]);
     const count = rewriteStringLiterals(sf, keyMap);
@@ -354,18 +356,35 @@ describe('rewriteStringLiterals', () => {
     expect(sf.getFullText()).not.toContain('"Bienvenue"');
   });
 
-  it('remplace plusieurs string literals', () => {
+  it('remplace plusieurs string literals (function-scope)', () => {
     const sf = src(`
-      const items = [{ name: "Premier" }, { name: "Deuxième" }];
-      export default function Page() { return <div />; }
+      export default function Page() {
+        const items = [{ name: "Premier" }, { name: "Deuxième" }];
+        return <div />;
+      }
     `);
     const keyMap = new Map([['Premier', 'premier'], ['Deuxième', 'deuxieme']]);
     const count = rewriteStringLiterals(sf, keyMap);
     expect(count).toBe(2);
   });
 
+  it('ignore les strings au module-scope (t() inaccessible)', () => {
+    const sf = src(`
+      const data = [{ title: "Bienvenue" }];
+      export default function Page() { return <div />; }
+    `);
+    const keyMap = new Map([['Bienvenue', 'bienvenue']]);
+    const count = rewriteStringLiterals(sf, keyMap);
+    expect(count).toBe(0);
+  });
+
   it('ignore les propriétés techniques (icon, type...)', () => {
-    const sf = src(`const x = { icon: "star", type: "submit" };`);
+    const sf = src(`
+      export default function Page() {
+        const x = { icon: "star", type: "submit" };
+        return <div />;
+      }
+    `);
     const keyMap = new Map([['star', 'star'], ['submit', 'submit']]);
     const count = rewriteStringLiterals(sf, keyMap);
     expect(count).toBe(0);
@@ -379,52 +398,47 @@ describe('rewriteStringLiterals', () => {
   });
 
   it('ignore les strings dans t() existants', () => {
-    const sf = src(`const x = t("already_done");`);
+    const sf = src(`
+      export default function Page() {
+        const x = t("already_done");
+        return <div />;
+      }
+    `);
     const keyMap = new Map([['already_done', 'already_done']]);
+    const count = rewriteStringLiterals(sf, keyMap);
+    expect(count).toBe(0);
+  });
+
+  it('ignore les strings dans les appels CSS utilities (cva, cn, clsx)', () => {
+    const sf = src(`
+      export default function Page() {
+        const cls = cn("flex", "items-center");
+        return <div />;
+      }
+    `);
+    const keyMap = new Map([['flex', 'flex'], ['items-center', 'items_center']]);
+    const count = rewriteStringLiterals(sf, keyMap);
+    expect(count).toBe(0);
+  });
+
+  it('ignore les valeurs par défaut de paramètres', () => {
+    const sf = src(`
+      export default function Page(label = "Default") {
+        return <div />;
+      }
+    `);
+    const keyMap = new Map([['Default', 'default_val']]);
     const count = rewriteStringLiterals(sf, keyMap);
     expect(count).toBe(0);
   });
 });
 
-describe('hoistModuleScopeVars', () => {
-  it('déplace une const module-scope avec t() dans le composant', () => {
-    const sf = src(`
-      const data = [{ title: t("bienvenue") }];
-      export default function Page() {
-        return <div />;
-      }
-    `);
-    const moved = hoistModuleScopeVars(sf);
-    expect(moved).toBe(1);
-    const text = sf.getFullText();
-    // La const doit être DANS la fonction Page
-    expect(text).toMatch(/function Page\(\)\s*\{[^}]*const data/s);
-  });
-
-  it('ne déplace pas une const qui est déjà dans une fonction', () => {
-    const sf = src(`
-      export default function Page() {
-        const data = [{ title: t("bienvenue") }];
-        return <div />;
-      }
-    `);
-    const moved = hoistModuleScopeVars(sf);
-    expect(moved).toBe(0);
-  });
-
-  it('ne fait rien s\'il n\'y a pas de composant', () => {
-    const sf = src(`const data = [{ title: t("bienvenue") }];`);
-    const moved = hoistModuleScopeVars(sf);
-    expect(moved).toBe(0);
-  });
-});
-
-describe('rewriteSourceFile — string literals + hoist', () => {
-  it('pipeline complet : const module-scope → hoist + t() + import', () => {
+describe('rewriteSourceFile — string literals (function-scope only)', () => {
+  it('pipeline complet : const function-scope → t() + import', () => {
     const sf = src(`
       'use client';
-      const facilities = [{ name: "Salle de musculation" }];
       export default function Page() {
+        const facilities = [{ name: "Salle de musculation" }];
         return <div>{facilities.map(f => <p>{f.name}</p>)}</div>;
       }
     `);
@@ -434,12 +448,26 @@ describe('rewriteSourceFile — string literals + hoist', () => {
     const text = sf.getFullText();
     // String remplacée
     expect(text).toContain('t("salle_de_musculation")');
-    // Const déplacée dans la fonction
-    expect(text).toMatch(/function Page\(\)\s*\{[^}]*const facilities/s);
     // t() injecté
     expect(text).toContain('const t = useTranslations()');
     // Import ajouté
     expect(text).toMatch(/from ['"]next-intl['"]/);
+  });
+
+  it('ne réécrit PAS les strings module-scope (t() inaccessible)', () => {
+    const sf = src(`
+      'use client';
+      const facilities = [{ name: "Salle de musculation" }];
+      export default function Page() {
+        return <div>{facilities.map(f => <p>{f.name}</p>)}</div>;
+      }
+    `);
+    const keyMap = new Map([['Salle de musculation', 'salle_de_musculation']]);
+    const count = rewriteSourceFile(sf, keyMap);
+    expect(count).toBe(0);
+    const text = sf.getFullText();
+    // La string originale doit être intacte
+    expect(text).toContain('"Salle de musculation"');
   });
 });
 

@@ -1,5 +1,14 @@
 import { type SourceFile, SyntaxKind, Node } from 'ts-morph';
 
+/**
+ * Accède au texte brut d'un segment de template literal via le compilerNode.
+ * ts-morph ne type pas publiquement `compilerNode.text`, d'où cet accès contrôlé.
+ */
+function getTemplateText(node: Node): string {
+  const compiler = node.compilerNode as unknown as Record<string, unknown>;
+  return typeof compiler['text'] === 'string' ? compiler['text'] : '';
+}
+
 /** Type de string trouvée dans le code source. */
 export type StringType =
   | 'jsx-text'
@@ -79,6 +88,11 @@ const TECHNICAL_PROPERTY_NAMES = new Set([
   'as', 'component', 'testId', 'dataTestId', 'data-testid', 'data-cy',
   'path', 'route', 'url', 'pattern', 'regex', 'format', 'encoding',
   'charset', 'mime', 'mimeType', 'contentType',
+  'orientation', 'direction', 'align', 'justify', 'decorative',
+  'backgroundColor', 'borderColor', 'borderRadius', 'border',
+  'fontWeight', 'fontSize', 'fontFamily', 'lineHeight',
+  'width', 'height', 'minWidth', 'minHeight', 'maxWidth', 'maxHeight',
+  'padding', 'margin', 'gap', 'display', 'position', 'overflow',
 ]);
 
 /**
@@ -98,13 +112,21 @@ function isInNonExtractableContext(node: Node): boolean {
     if (TECHNICAL_PROPERTY_NAMES.has(propName)) return true;
   }
 
+  // Valeur par défaut d'un paramètre : function foo(x = "default")
+  if (parent.getKind() === SyntaxKind.Parameter) return true;
+
+  // Valeur par défaut de destructuring : const { x = "default" } = props
+  if (parent.getKind() === SyntaxKind.BindingElement) return true;
+
   // new Error(), new TypeError(), etc.
   if (Node.isNewExpression(parent)) return true;
 
-  // Appels à des fonctions techniques
+  // Appels à des fonctions techniques ou CSS utilities
   if (Node.isCallExpression(parent)) {
     const callee = parent.getExpression().getText();
     if (/^(console\.\w+|require|Error|JSON\.\w+|parseInt|parseFloat|fetch|addEventListener|removeEventListener)$/.test(callee)) return true;
+    // CSS utility functions (shadcn/tailwind)
+    if (/^(cva|cn|clsx|twMerge|classNames|classnames|css|styled|tv)$/.test(callee)) return true;
   }
 
   // Remonter l'arbre pour les contextes structurels
@@ -115,6 +137,11 @@ function isInNonExtractableContext(node: Node): boolean {
     if (Node.isEnumDeclaration(current)) return true;
     // JSX attribute — handled separately by attribute extractor
     if (Node.isJsxAttribute(current)) return true;
+    // Remonter les appels cva/cn imbriqués
+    if (Node.isCallExpression(current)) {
+      const callee = current.getExpression().getText();
+      if (/^(cva|cn|clsx|twMerge|classNames|classnames|css|styled|tv)$/.test(callee)) return true;
+    }
     current = current.getParent();
   }
 
@@ -184,13 +211,13 @@ export function extractStrings(sourceFile: SourceFile, filePath: string): Extrac
 
     const variables: string[] = [];
     // getLiteralValue() retourne le texte brut du segment (compilerNode.text)
-    let reconstructed = (node.getHead().compilerNode as unknown as { text: string }).text;
+    let reconstructed = getTemplateText(node.getHead());
 
     for (const span of node.getTemplateSpans()) {
       const varExpr = span.getExpression().getText();
       variables.push(varExpr);
       reconstructed += `{${varExpr}}`;
-      reconstructed += (span.getLiteral().compilerNode as unknown as { text: string }).text;
+      reconstructed += getTemplateText(span.getLiteral());
     }
 
     const trimmed = reconstructed.trim();

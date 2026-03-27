@@ -12,6 +12,7 @@ const DEFAULT_IGNORE_DIRS = new Set([
   'node_modules', '.next', '.git', 'dist', 'build', 'out',
   '.turbo', '.cache', 'coverage', '.vercel', 'public',
   'i18n', 'messages',
+  'ui', // shadcn / primitives UI — ne doivent pas être traduits
 ]);
 
 /** Fichiers générés par next-auto-i18n — jamais scannés ni réécrits. */

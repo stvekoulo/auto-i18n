@@ -1,6 +1,15 @@
 import { type SourceFile, SyntaxKind, Node } from 'ts-morph';
 
 /**
+ * Accède au texte brut d'un segment de template literal via le compilerNode.
+ * ts-morph ne type pas publiquement `compilerNode.text`, d'où cet accès contrôlé.
+ */
+function getTemplateText(node: Node): string {
+  const compiler = node.compilerNode as unknown as Record<string, unknown>;
+  return typeof compiler['text'] === 'string' ? compiler['text'] : '';
+}
+
+/**
  * Remplace les noeuds JsxText traduisibles par {t("clé")}.
  * Traite les noeuds en ordre inverse pour préserver les positions.
  * Retourne le nombre de remplacements effectués.
@@ -82,14 +91,14 @@ export function rewriteTemplateExpressions(
     }
 
     // Reconstruit la valeur avec placeholders {varName} (même logique que le scanner)
-    let reconstructed = (node.getHead().compilerNode as unknown as { text: string }).text;
+    let reconstructed = getTemplateText(node.getHead());
     const variables: string[] = [];
 
     for (const span of node.getTemplateSpans()) {
       const varExpr = span.getExpression().getText();
       variables.push(varExpr);
       reconstructed += `{${varExpr}}`;
-      reconstructed += (span.getLiteral().compilerNode as unknown as { text: string }).text;
+      reconstructed += getTemplateText(span.getLiteral());
     }
 
     const trimmed = reconstructed.trim();
