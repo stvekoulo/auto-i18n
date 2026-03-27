@@ -6,6 +6,8 @@ import { injectLayout, findLayoutFile } from '../../src/injector/layout-injector
 import { injectNextConfig, findNextConfig } from '../../src/injector/config-injector';
 import { injectMiddleware } from '../../src/injector/middleware-injector';
 import { injectRouting } from '../../src/injector/routing-injector';
+import { injectRequest } from '../../src/injector/request-injector';
+import { injectLocaleStructure } from '../../src/injector/locale-structure-injector';
 import { injectAll } from '../../src/injector/index';
 
 let tmpDirs: string[] = [];
@@ -306,6 +308,79 @@ describe('injectRouting', () => {
     expect(result.modified).toBe(false);
     const content = await readFile(join(dir, 'i18n', 'routing.ts'), 'utf-8');
     expect(content).toBe(existing); // inchangé
+  });
+});
+
+describe('src/ directory support', () => {
+  it('injectMiddleware place middleware.ts dans src/ si src/app/layout.tsx existe', async () => {
+    const dir = await makeTmpDir();
+    await mkdir(join(dir, 'src', 'app'), { recursive: true });
+    await writeFile(join(dir, 'src', 'app', 'layout.tsx'), BASIC_LAYOUT);
+
+    const result = await injectMiddleware(dir, { silent: true });
+
+    expect(result.modified).toBe(true);
+    expect(result.filePath).toContain(join('src', 'middleware.ts'));
+    const content = await readFile(join(dir, 'src', 'middleware.ts'), 'utf-8');
+    expect(content).toContain('createMiddleware');
+  });
+
+  it('injectRouting place routing.ts dans src/i18n/ si src/app/layout.tsx existe', async () => {
+    const dir = await makeTmpDir();
+    await mkdir(join(dir, 'src', 'app'), { recursive: true });
+    await writeFile(join(dir, 'src', 'app', 'layout.tsx'), BASIC_LAYOUT);
+
+    const result = await injectRouting(
+      dir,
+      { locales: ['fr', 'en'], defaultLocale: 'fr' },
+      { silent: true },
+    );
+
+    expect(result.modified).toBe(true);
+    expect(result.filePath).toContain(join('src', 'i18n', 'routing.ts'));
+    const content = await readFile(join(dir, 'src', 'i18n', 'routing.ts'), 'utf-8');
+    expect(content).toContain('defineRouting');
+  });
+
+  it('injectRequest place request.ts dans src/i18n/ avec import ../../messages/', async () => {
+    const dir = await makeTmpDir();
+    await mkdir(join(dir, 'src', 'app'), { recursive: true });
+    await writeFile(join(dir, 'src', 'app', 'layout.tsx'), BASIC_LAYOUT);
+
+    const result = await injectRequest(dir, { silent: true });
+
+    expect(result.modified).toBe(true);
+    expect(result.filePath).toContain(join('src', 'i18n', 'request.ts'));
+    const content = await readFile(join(dir, 'src', 'i18n', 'request.ts'), 'utf-8');
+    expect(content).toContain('../../messages/');
+  });
+
+  it('injectRequest utilise ../messages/ sans src/', async () => {
+    const dir = await makeTmpDir();
+    await mkdir(join(dir, 'app'), { recursive: true });
+    await writeFile(join(dir, 'app', 'layout.tsx'), BASIC_LAYOUT);
+
+    const result = await injectRequest(dir, { silent: true });
+
+    expect(result.filePath).toContain(join('i18n', 'request.ts'));
+    expect(result.filePath).not.toContain('src');
+    const content = await readFile(join(dir, 'i18n', 'request.ts'), 'utf-8');
+    expect(content).toContain('../messages/');
+    expect(content).not.toContain('../../messages/');
+  });
+});
+
+describe('suppressHydrationWarning', () => {
+  it('le root layout réécrit contient suppressHydrationWarning sur <html>', async () => {
+    const dir = await makeTmpDir();
+    await mkdir(join(dir, 'app'), { recursive: true });
+    await writeFile(join(dir, 'app', 'layout.tsx'), BASIC_LAYOUT);
+    await writeFile(join(dir, 'app', 'page.tsx'), `export default function Page() { return <p>Hello</p>; }`);
+
+    await injectLocaleStructure(dir, ['fr', 'en'], 'fr', { silent: true });
+
+    const content = await readFile(join(dir, 'app', 'layout.tsx'), 'utf-8');
+    expect(content).toContain('suppressHydrationWarning');
   });
 });
 

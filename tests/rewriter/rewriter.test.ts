@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import { parseSource } from '../../src/scanner/ast-parser';
 import { rewriteJsxText, rewriteNoSubstitutionTemplateLiterals, rewriteTemplateExpressions } from '../../src/rewriter/jsx-rewriter';
 import { rewriteAttributes } from '../../src/rewriter/attr-rewriter';
+import { rewriteStringLiterals, hoistModuleScopeVars } from '../../src/rewriter/const-rewriter';
 import {
   isClientComponent,
   injectTDeclarations,
@@ -337,6 +338,108 @@ describe('rewriteSourceFile', () => {
     expect(text).toContain('const t = await getTranslations()');
     expect(text).toContain('async function Page');
     expect(text).toMatch(/from ['"]next-intl\/server['"]/);
+  });
+});
+
+describe('rewriteStringLiterals', () => {
+  it('remplace un string literal dans une propriété d\'objet', () => {
+    const sf = src(`
+      const data = [{ title: "Bienvenue" }];
+      export default function Page() { return <div />; }
+    `);
+    const keyMap = new Map([['Bienvenue', 'bienvenue']]);
+    const count = rewriteStringLiterals(sf, keyMap);
+    expect(count).toBe(1);
+    expect(sf.getFullText()).toContain('t("bienvenue")');
+    expect(sf.getFullText()).not.toContain('"Bienvenue"');
+  });
+
+  it('remplace plusieurs string literals', () => {
+    const sf = src(`
+      const items = [{ name: "Premier" }, { name: "Deuxième" }];
+      export default function Page() { return <div />; }
+    `);
+    const keyMap = new Map([['Premier', 'premier'], ['Deuxième', 'deuxieme']]);
+    const count = rewriteStringLiterals(sf, keyMap);
+    expect(count).toBe(2);
+  });
+
+  it('ignore les propriétés techniques (icon, type...)', () => {
+    const sf = src(`const x = { icon: "star", type: "submit" };`);
+    const keyMap = new Map([['star', 'star'], ['submit', 'submit']]);
+    const count = rewriteStringLiterals(sf, keyMap);
+    expect(count).toBe(0);
+  });
+
+  it('ignore les strings dans les imports', () => {
+    const sf = src(`import { foo } from "some-module";`);
+    const keyMap = new Map([['some-module', 'some_module']]);
+    const count = rewriteStringLiterals(sf, keyMap);
+    expect(count).toBe(0);
+  });
+
+  it('ignore les strings dans t() existants', () => {
+    const sf = src(`const x = t("already_done");`);
+    const keyMap = new Map([['already_done', 'already_done']]);
+    const count = rewriteStringLiterals(sf, keyMap);
+    expect(count).toBe(0);
+  });
+});
+
+describe('hoistModuleScopeVars', () => {
+  it('déplace une const module-scope avec t() dans le composant', () => {
+    const sf = src(`
+      const data = [{ title: t("bienvenue") }];
+      export default function Page() {
+        return <div />;
+      }
+    `);
+    const moved = hoistModuleScopeVars(sf);
+    expect(moved).toBe(1);
+    const text = sf.getFullText();
+    // La const doit être DANS la fonction Page
+    expect(text).toMatch(/function Page\(\)\s*\{[^}]*const data/s);
+  });
+
+  it('ne déplace pas une const qui est déjà dans une fonction', () => {
+    const sf = src(`
+      export default function Page() {
+        const data = [{ title: t("bienvenue") }];
+        return <div />;
+      }
+    `);
+    const moved = hoistModuleScopeVars(sf);
+    expect(moved).toBe(0);
+  });
+
+  it('ne fait rien s\'il n\'y a pas de composant', () => {
+    const sf = src(`const data = [{ title: t("bienvenue") }];`);
+    const moved = hoistModuleScopeVars(sf);
+    expect(moved).toBe(0);
+  });
+});
+
+describe('rewriteSourceFile — string literals + hoist', () => {
+  it('pipeline complet : const module-scope → hoist + t() + import', () => {
+    const sf = src(`
+      'use client';
+      const facilities = [{ name: "Salle de musculation" }];
+      export default function Page() {
+        return <div>{facilities.map(f => <p>{f.name}</p>)}</div>;
+      }
+    `);
+    const keyMap = new Map([['Salle de musculation', 'salle_de_musculation']]);
+    const count = rewriteSourceFile(sf, keyMap);
+    expect(count).toBe(1);
+    const text = sf.getFullText();
+    // String remplacée
+    expect(text).toContain('t("salle_de_musculation")');
+    // Const déplacée dans la fonction
+    expect(text).toMatch(/function Page\(\)\s*\{[^}]*const facilities/s);
+    // t() injecté
+    expect(text).toContain('const t = useTranslations()');
+    // Import ajouté
+    expect(text).toMatch(/from ['"]next-intl['"]/);
   });
 });
 

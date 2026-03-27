@@ -10,6 +10,7 @@ import {
 } from 'ts-morph';
 import { rewriteJsx } from './jsx-rewriter.js';
 import { rewriteAttributes } from './attr-rewriter.js';
+import { rewriteStringLiterals, hoistModuleScopeVars } from './const-rewriter.js';
 
 export interface RewriteOptions {
   /** Mapping { valeur originale → clé i18n } produit par le generator. */
@@ -125,9 +126,13 @@ export function rewriteSourceFile(
 ): number {
   const jsxCount = rewriteJsx(sourceFile, keyMap);
   const attrCount = rewriteAttributes(sourceFile, keyMap);
-  const total = jsxCount + attrCount;
+  const constCount = rewriteStringLiterals(sourceFile, keyMap);
+  const total = jsxCount + attrCount + constCount;
 
   if (total > 0) {
+    // Déplacer les const module-scope contenant t() dans le corps du composant
+    hoistModuleScopeVars(sourceFile);
+
     const isClient = isClientComponent(sourceFile);
     injectTDeclarations(sourceFile, isClient);
     addNextIntlImport(sourceFile, isClient);

@@ -160,6 +160,115 @@ describe('extractStrings — fixture TestComponent', () => {
     });
   });
 
+  describe('type string-literal', () => {
+    it('extrait les string literals dans les propriétés d\'objet', () => {
+      const source = `
+        const data = [{ title: "Bienvenue chez nous", desc: "Une description" }];
+        export default function Page() { return <div />; }
+      `;
+      const sf = parseSource(source, 'test.tsx');
+      const result = extractStrings(sf, 'test.tsx');
+      const literals = byType(result, 'string-literal');
+      expect(hasValue(literals, 'Bienvenue chez nous')).toBe(true);
+      expect(hasValue(literals, 'Une description')).toBe(true);
+    });
+
+    it('extrait les string literals dans les éléments de tableau', () => {
+      const source = `
+        const items = ["Premier élément", "Deuxième élément"];
+        export default function Page() { return <div />; }
+      `;
+      const sf = parseSource(source, 'test.tsx');
+      const result = extractStrings(sf, 'test.tsx');
+      const literals = byType(result, 'string-literal');
+      expect(hasValue(literals, 'Premier élément')).toBe(true);
+      expect(hasValue(literals, 'Deuxième élément')).toBe(true);
+    });
+
+    it('extrait les string literals assignées à des variables', () => {
+      const source = `const greeting = "Bonjour le monde";`;
+      const sf = parseSource(source, 'test.ts');
+      const result = extractStrings(sf, 'test.ts');
+      const literals = byType(result, 'string-literal');
+      expect(hasValue(literals, 'Bonjour le monde')).toBe(true);
+    });
+
+    it('n\'extrait PAS les import specifiers', () => {
+      const source = `import { foo } from "some-module";`;
+      const sf = parseSource(source, 'test.ts');
+      const result = extractStrings(sf, 'test.ts');
+      expect(hasValue(result, 'some-module')).toBe(false);
+    });
+
+    it('n\'extrait PAS les clés de propriété (quoted)', () => {
+      const source = `const obj = { "my-key": "Ma valeur" };`;
+      const sf = parseSource(source, 'test.ts');
+      const result = extractStrings(sf, 'test.ts');
+      const literals = byType(result, 'string-literal');
+      expect(hasValue(literals, 'my-key')).toBe(false);
+      expect(hasValue(literals, 'Ma valeur')).toBe(true);
+    });
+
+    it('n\'extrait PAS les propriétés techniques (icon, type, className...)', () => {
+      const source = `const x = { icon: "🏋️", type: "submit", className: "flex" };`;
+      const sf = parseSource(source, 'test.ts');
+      const result = extractStrings(sf, 'test.ts');
+      const literals = byType(result, 'string-literal');
+      expect(hasValue(literals, '🏋️')).toBe(false);
+      expect(hasValue(literals, 'submit')).toBe(false);
+      expect(hasValue(literals, 'flex')).toBe(false);
+    });
+
+    it('n\'extrait PAS les strings dans new Error()', () => {
+      const source = `throw new Error("Something went wrong");`;
+      const sf = parseSource(source, 'test.ts');
+      const result = extractStrings(sf, 'test.ts');
+      expect(hasValue(result, 'Something went wrong')).toBe(false);
+    });
+
+    it('n\'extrait PAS les strings dans console.log()', () => {
+      const source = `console.log("debug message");`;
+      const sf = parseSource(source, 'test.ts');
+      const result = extractStrings(sf, 'test.ts');
+      expect(hasValue(result, 'debug message')).toBe(false);
+    });
+
+    it('n\'extrait PAS les strings déjà dans t()', () => {
+      const source = `const x = t("already_translated");`;
+      const sf = parseSource(source, 'test.ts');
+      const result = extractStrings(sf, 'test.ts');
+      const literals = byType(result, 'string-literal');
+      expect(hasValue(literals, 'already_translated')).toBe(false);
+    });
+
+    it('n\'extrait PAS les strings dans les JSX attributes (déjà gérées)', () => {
+      const source = `function C() { return <input placeholder="Chercher" />; }`;
+      const sf = parseSource(source, 'test.tsx');
+      const result = extractStrings(sf, 'test.tsx');
+      const literals = byType(result, 'string-literal');
+      // "Chercher" doit être dans jsx-attribute, pas dans string-literal
+      expect(hasValue(literals, 'Chercher')).toBe(false);
+      const attrs = byType(result, 'jsx-attribute');
+      expect(hasValue(attrs, 'Chercher')).toBe(true);
+    });
+
+    it('n\'extrait PAS les strings dans les enum', () => {
+      const source = `enum Status { Active = "active", Inactive = "inactive" }`;
+      const sf = parseSource(source, 'test.ts');
+      const result = extractStrings(sf, 'test.ts');
+      expect(hasValue(result, 'active')).toBe(false);
+      expect(hasValue(result, 'inactive')).toBe(false);
+    });
+
+    it('n\'extrait PAS les strings dans les interfaces/types', () => {
+      const source = `interface Config { mode: "dark" | "light" }`;
+      const sf = parseSource(source, 'test.ts');
+      const result = extractStrings(sf, 'test.ts');
+      expect(hasValue(result, 'dark')).toBe(false);
+      expect(hasValue(result, 'light')).toBe(false);
+    });
+  });
+
   describe('intégration : filtrage des strings techniques', () => {
     it('les strings techniques extraites sont ignorées par shouldIgnore', () => {
       const content = readFileSync(FIXTURE_PATH, 'utf-8');

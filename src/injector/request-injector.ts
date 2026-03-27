@@ -1,5 +1,6 @@
 import { writeFile, mkdir, access } from 'fs/promises';
 import { join } from 'path';
+import { findLayoutFile } from './layout-injector.js';
 
 export interface RequestInjectorResult {
   modified: boolean;
@@ -7,7 +8,11 @@ export interface RequestInjectorResult {
   filePath: string;
 }
 
-function buildRequestContent(): string {
+function buildRequestContent(useSrc: boolean): string {
+  // Si src/ : i18n est dans src/i18n/ et messages dans root/messages/
+  // Depuis src/i18n/request.ts → ../../messages/ (remonter src/ puis i18n/)
+  // Sans src/ : depuis i18n/request.ts → ../messages/
+  const messagesPath = useSrc ? '../../messages' : '../messages';
   return `import { getRequestConfig } from 'next-intl/server';
 import { routing } from './routing';
 
@@ -18,7 +23,7 @@ export default getRequestConfig(async ({ requestLocale }) => {
   }
   return {
     locale,
-    messages: (await import(\`../messages/\${locale}.json\`)).default,
+    messages: (await import(\`${messagesPath}/\${locale}.json\`)).default,
   };
 });
 `;
@@ -28,19 +33,27 @@ export async function injectRequest(
   projectRoot: string,
   options: { silent?: boolean } = {},
 ): Promise<RequestInjectorResult> {
-  const i18nDir = join(projectRoot, 'i18n');
+  // Détecter si le projet utilise src/
+  const layoutPath = await findLayoutFile(projectRoot);
+  const useSrc = layoutPath ? layoutPath.includes(join('src', 'app')) : false;
+  const baseDir = useSrc ? join(projectRoot, 'src') : projectRoot;
+
+  const i18nDir = join(baseDir, 'i18n');
   const filePath = join(i18nDir, 'request.ts');
 
-  try {
-    await access(filePath);
-    if (!options.silent) console.log(`  — ${filePath} — déjà présent`);
-    return { modified: false, skipped: true, filePath };
-  } catch {
-    /* fichier absent → on le crée */
+  // Vérifier les deux emplacements possibles
+  for (const dir of [join(baseDir, 'i18n'), join(projectRoot, 'i18n')]) {
+    try {
+      await access(join(dir, 'request.ts'));
+      if (!options.silent) console.log(`  — ${join(dir, 'request.ts')} — déjà présent`);
+      return { modified: false, skipped: true, filePath: join(dir, 'request.ts') };
+    } catch {
+      /* non trouvé */
+    }
   }
 
   await mkdir(i18nDir, { recursive: true });
-  await writeFile(filePath, buildRequestContent(), 'utf-8');
+  await writeFile(filePath, buildRequestContent(useSrc), 'utf-8');
 
   if (!options.silent) console.log(`  ✓ ${filePath} — créé`);
   return { modified: true, skipped: false, filePath };

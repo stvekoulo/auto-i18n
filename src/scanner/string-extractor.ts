@@ -5,7 +5,8 @@ export type StringType =
   | 'jsx-text'
   | 'jsx-attribute'
   | 'template-literal'
-  | 'template-literal-dynamic';
+  | 'template-literal-dynamic'
+  | 'string-literal';
 
 /** Une string traduisible extraite du code source. */
 export interface ExtractedString {
@@ -68,6 +69,56 @@ function isFirstArgOfTCall(node: Node): boolean {
   if (!/^t$|^translate$/.test(callee)) return false;
   const args = parent.getArguments();
   return args.length > 0 && args[0] === node;
+}
+
+/** Noms de propriétés dont les valeurs sont techniques (pas de traduction). */
+const TECHNICAL_PROPERTY_NAMES = new Set([
+  'key', 'id', 'className', 'class', 'style', 'type',
+  'href', 'src', 'srcSet', 'action', 'method', 'target', 'rel',
+  'role', 'htmlFor', 'icon', 'color', 'variant', 'size',
+  'as', 'component', 'testId', 'dataTestId', 'data-testid', 'data-cy',
+  'path', 'route', 'url', 'pattern', 'regex', 'format', 'encoding',
+  'charset', 'mime', 'mimeType', 'contentType',
+]);
+
+/**
+ * Vérifie si un StringLiteral est dans un contexte non traduisible :
+ * import, export, type, enum, new Error(), console.*, etc.
+ */
+function isInNonExtractableContext(node: Node): boolean {
+  const parent = node.getParent();
+  if (!parent) return true;
+
+  // Propriété name d'un objet (clé, pas valeur)
+  if (Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return true;
+
+  // Valeur d'une propriété technique (icon, type, className, etc.)
+  if (Node.isPropertyAssignment(parent)) {
+    const propName = parent.getName();
+    if (TECHNICAL_PROPERTY_NAMES.has(propName)) return true;
+  }
+
+  // new Error(), new TypeError(), etc.
+  if (Node.isNewExpression(parent)) return true;
+
+  // Appels à des fonctions techniques
+  if (Node.isCallExpression(parent)) {
+    const callee = parent.getExpression().getText();
+    if (/^(console\.\w+|require|Error|JSON\.\w+|parseInt|parseFloat|fetch|addEventListener|removeEventListener)$/.test(callee)) return true;
+  }
+
+  // Remonter l'arbre pour les contextes structurels
+  let current: Node | undefined = parent;
+  while (current) {
+    if (Node.isImportDeclaration(current) || Node.isExportDeclaration(current)) return true;
+    if (Node.isTypeAliasDeclaration(current) || Node.isInterfaceDeclaration(current)) return true;
+    if (Node.isEnumDeclaration(current)) return true;
+    // JSX attribute — handled separately by attribute extractor
+    if (Node.isJsxAttribute(current)) return true;
+    current = current.getParent();
+  }
+
+  return false;
 }
 
 function getLocation(node: Node) {
@@ -153,6 +204,19 @@ export function extractStrings(sourceFile: SourceFile, filePath: string): Extrac
       ...loc,
       variables,
     });
+  }
+
+  // String literals dans les déclarations de variables, objets, tableaux
+  // (ex: const data = [{ name: "Salle de musculation" }])
+  for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.StringLiteral)) {
+    if (isFirstArgOfTCall(node)) continue;
+    if (isInNonExtractableContext(node)) continue;
+
+    const value = node.getLiteralValue().trim();
+    if (!value) continue;
+
+    const loc = getLocation(node);
+    results.push({ value, type: 'string-literal', filePath, ...loc });
   }
 
   return results;

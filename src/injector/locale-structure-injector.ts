@@ -174,7 +174,7 @@ async function rewriteRootLayout(layoutPath: string): Promise<void> {
   children: React.ReactNode;
 }) {
   return (
-    <html>
+    <html suppressHydrationWarning>
       ${bodyTag}
         {children}
       </body>

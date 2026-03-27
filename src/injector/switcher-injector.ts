@@ -324,7 +324,9 @@ export async function injectLanguageSwitcher(
   await mkdir(componentsDir, { recursive: true });
 
   // Compute the relative import path for routing
-  const routingImportPath = useSrc ? '../../i18n/routing' : '../i18n/routing';
+  // Avec src/ : src/components/ → src/i18n/routing = ../i18n/routing
+  // Sans src/ : components/ → i18n/routing = ../i18n/routing
+  const routingImportPath = '../i18n/routing';
 
   // Write the component file
   await writeFile(switcherPath, buildSwitcherComponent(routingImportPath), 'utf-8');

@@ -1,5 +1,6 @@
 import { writeFile, readFile, access } from 'fs/promises';
 import { join } from 'path';
+import { findLayoutFile } from './layout-injector.js';
 
 export interface MiddlewareInjectorResult {
   modified: boolean;
@@ -8,8 +9,10 @@ export interface MiddlewareInjectorResult {
   warning?: string;
 }
 
-const MIDDLEWARE_CONTENT = `import createMiddleware from 'next-intl/middleware';
-import { routing } from './i18n/routing';
+function buildMiddlewareContent(useSrc: boolean): string {
+  const routingImport = useSrc ? './i18n/routing' : './i18n/routing';
+  return `import createMiddleware from 'next-intl/middleware';
+import { routing } from '${routingImport}';
 
 export default createMiddleware(routing);
 
@@ -17,16 +20,7 @@ export const config = {
   matcher: ['/((?!api|_next|_vercel|.*\\\\..*).*)'],
 };
 `;
-
-const PROXY_CONTENT = `import createMiddleware from 'next-intl/middleware';
-import { routing } from './i18n/routing';
-
-export default createMiddleware(routing);
-
-export const config = {
-  matcher: ['/((?!api|_next|_vercel|.*\\\\..*).*)'],
-};
-`;
+}
 
 /**
  * Détecte la version majeure de Next.js installée dans le projet.
@@ -51,31 +45,31 @@ export async function injectMiddleware(
   const nextVersion = await detectNextMajorVersion(projectRoot);
   const useProxy = nextVersion !== null && nextVersion >= 16;
 
+  // Détecter si le projet utilise src/
+  const layoutPath = await findLayoutFile(projectRoot);
+  const useSrc = layoutPath ? layoutPath.includes(join('src', 'app')) : false;
+  const baseDir = useSrc ? join(projectRoot, 'src') : projectRoot;
+
   const fileName = useProxy ? 'proxy.ts' : 'middleware.ts';
-  const content = useProxy ? PROXY_CONTENT : MIDDLEWARE_CONTENT;
-  const filePath = join(projectRoot, fileName);
+  const content = buildMiddlewareContent(useSrc);
+  const filePath = join(baseDir, fileName);
 
   // Vérifier aussi l'ancien nom si on passe à proxy
-  const altPath = join(projectRoot, useProxy ? 'middleware.ts' : 'proxy.ts');
+  const altFileName = useProxy ? 'middleware.ts' : 'proxy.ts';
 
-  try {
-    await access(filePath);
-    const warning = `${fileName} existe déjà — configuration manuelle requise`;
-    if (!options.silent) console.log(`  ⚠ ${filePath} — ${warning}`);
-    return { modified: false, skipped: true, filePath, warning };
-  } catch {
-    /* fichier absent → on le crée */
-  }
-
-  // Vérifier si l'alternative existe déjà
-  try {
-    await access(altPath);
-    const altName = useProxy ? 'middleware.ts' : 'proxy.ts';
-    const warning = `${altName} existe déjà — ${fileName} non créé`;
-    if (!options.silent) console.log(`  ⚠ ${warning}`);
-    return { modified: false, skipped: true, filePath: altPath, warning };
-  } catch {
-    /* pas d'alternative non plus */
+  // Vérifier les deux emplacements possibles (src/ et root)
+  for (const dir of [baseDir, projectRoot]) {
+    for (const name of [fileName, altFileName]) {
+      const candidate = join(dir, name);
+      try {
+        await access(candidate);
+        const warning = `${name} existe déjà (${candidate}) — configuration manuelle requise`;
+        if (!options.silent) console.log(`  ⚠ ${warning}`);
+        return { modified: false, skipped: true, filePath: candidate, warning };
+      } catch {
+        /* non trouvé */
+      }
+    }
   }
 
   await writeFile(filePath, content, 'utf-8');
