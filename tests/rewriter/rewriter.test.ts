@@ -5,7 +5,7 @@ import { tmpdir } from 'os';
 import { parseSource } from '../../src/scanner/ast-parser';
 import { rewriteJsxText, rewriteNoSubstitutionTemplateLiterals, rewriteTemplateExpressions } from '../../src/rewriter/jsx-rewriter';
 import { rewriteAttributes } from '../../src/rewriter/attr-rewriter';
-import { rewriteStringLiterals } from '../../src/rewriter/const-rewriter';
+import { rewriteStringLiterals, findModuleScopeStrings } from '../../src/rewriter/const-rewriter';
 import {
   isClientComponent,
   injectTDeclarations,
@@ -535,5 +535,104 @@ describe('rewriteFiles', () => {
     expect(result.filesModified).toBe(2);
     expect(result.filesSkipped).toBe(1);
     expect(result.totalReplaced).toBe(2);
+  });
+
+  it('retourne les strings module-scope non réécrites', async () => {
+    const dir = await makeTmpDir();
+    const filePath = join(dir, 'Testimonials.tsx');
+    await writeFile(
+      filePath,
+      `const data = [{ text: "Bonjour le monde" }];\nexport default function Page() { return <div />; }`,
+      'utf-8',
+    );
+
+    const keyMap = new Map([['Bonjour le monde', 'bonjour_le_monde']]);
+    const result = await rewriteFiles([filePath], { keyMap, silent: true });
+
+    expect(result.moduleScopeStrings).toHaveLength(1);
+    expect(result.moduleScopeStrings[0].key).toBe('bonjour_le_monde');
+    expect(result.moduleScopeStrings[0].value).toBe('Bonjour le monde');
+    expect(result.moduleScopeStrings[0].line).toBe(1);
+    // Le fichier n'a pas été modifié (string module-scope non réécrite)
+    expect(result.totalReplaced).toBe(0);
+  });
+
+  it('retourne un tableau vide si aucune string module-scope', async () => {
+    const dir = await makeTmpDir();
+    const filePath = join(dir, 'Page.tsx');
+    await writeFile(
+      filePath,
+      `'use client';\nexport default function Page() { return <h1>Bonjour</h1>; }`,
+      'utf-8',
+    );
+
+    const keyMap = new Map([['Bonjour', 'bonjour']]);
+    const result = await rewriteFiles([filePath], { keyMap, silent: true });
+
+    expect(result.moduleScopeStrings).toHaveLength(0);
+    expect(result.totalReplaced).toBe(1);
+  });
+});
+
+describe('findModuleScopeStrings', () => {
+  it('détecte les strings module-scope présentes dans le keyMap', () => {
+    const sf = src(`
+      const data = [{ title: "Bienvenue" }, { title: "Au revoir" }];
+      export default function Page() { return <div />; }
+    `);
+    const keyMap = new Map([['Bienvenue', 'bienvenue'], ['Au revoir', 'au_revoir']]);
+    const result = findModuleScopeStrings(sf, keyMap);
+    expect(result).toHaveLength(2);
+    expect(result.map(s => s.key)).toContain('bienvenue');
+    expect(result.map(s => s.key)).toContain('au_revoir');
+  });
+
+  it('ignore les strings function-scope', () => {
+    const sf = src(`
+      export default function Page() {
+        const data = [{ title: "Bienvenue" }];
+        return <div />;
+      }
+    `);
+    const keyMap = new Map([['Bienvenue', 'bienvenue']]);
+    const result = findModuleScopeStrings(sf, keyMap);
+    expect(result).toHaveLength(0);
+  });
+
+  it('ignore les strings absentes du keyMap', () => {
+    const sf = src(`
+      const data = [{ title: "Bienvenue" }];
+      export default function Page() { return <div />; }
+    `);
+    const result = findModuleScopeStrings(sf, new Map());
+    expect(result).toHaveLength(0);
+  });
+
+  it('ignore les imports, types et enums', () => {
+    const sf = src(`
+      import { foo } from "some-module";
+      type X = "literal";
+      enum E { A = "hello" }
+    `);
+    const keyMap = new Map([['some-module', 'k1'], ['literal', 'k2'], ['hello', 'k3']]);
+    const result = findModuleScopeStrings(sf, keyMap);
+    expect(result).toHaveLength(0);
+  });
+
+  it('ignore les propriétés techniques (icon, type...)', () => {
+    const sf = src(`const x = { icon: "star", type: "submit" };`);
+    const keyMap = new Map([['star', 'star'], ['submit', 'submit']]);
+    const result = findModuleScopeStrings(sf, keyMap);
+    expect(result).toHaveLength(0);
+  });
+
+  it('retourne la bonne ligne et clé', () => {
+    const sf = src(`const msg = [{ text: "Salut" }];`);
+    const keyMap = new Map([['Salut', 'salut']]);
+    const result = findModuleScopeStrings(sf, keyMap);
+    expect(result).toHaveLength(1);
+    expect(result[0].value).toBe('Salut');
+    expect(result[0].key).toBe('salut');
+    expect(result[0].line).toBe(1);
   });
 });

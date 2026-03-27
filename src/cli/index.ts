@@ -132,6 +132,28 @@ program
         logger.success(
           `${rwResult.totalReplaced} remplacements dans ${rwResult.filesModified} fichier${rwResult.filesModified > 1 ? 's' : ''}`,
         );
+
+        // Avertir sur les strings module-scope (traduites dans le JSON mais non réécrites)
+        if (rwResult.moduleScopeStrings.length > 0) {
+          const count = rwResult.moduleScopeStrings.length;
+          logger.warn(
+            `${count} string${count > 1 ? 's' : ''} module-scope non réécrite${count > 1 ? 's' : ''} (traductions disponibles dans le JSON)`,
+          );
+          // Grouper par fichier pour un affichage lisible
+          const byFile = new Map<string, typeof rwResult.moduleScopeStrings>();
+          for (const s of rwResult.moduleScopeStrings) {
+            const list = byFile.get(s.filePath) ?? [];
+            list.push(s);
+            byFile.set(s.filePath, list);
+          }
+          for (const [file, items] of byFile) {
+            for (const item of items) {
+              const preview = item.value.length > 50 ? item.value.slice(0, 50) + '...' : item.value;
+              logger.dim(`  ${file}:${item.line}  "${preview}" → ${item.key}`);
+            }
+          }
+          logger.dim('  → Déplacez ces const dans vos composants pour utiliser t("clé")');
+        }
       } catch (rwErr) {
         logger.warn(
           `Réécriture partielle (${rwErr instanceof Error ? rwErr.message : String(rwErr)})`,

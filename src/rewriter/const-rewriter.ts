@@ -92,6 +92,69 @@ function isNonRewritableContext(node: Node): boolean {
   return false;
 }
 
+export interface ModuleScopeString {
+  value: string;
+  key: string;
+  line: number;
+  column: number;
+}
+
+/**
+ * Identifie les strings traduisibles qui sont au module-scope
+ * et ne peuvent donc pas être réécrites avec t().
+ * Ces strings sont dans le JSON mais le code source reste intact.
+ */
+export function findModuleScopeStrings(
+  sourceFile: SourceFile,
+  keyMap: Map<string, string>,
+): ModuleScopeString[] {
+  const nodes = sourceFile.getDescendantsOfKind(SyntaxKind.StringLiteral);
+  const results: ModuleScopeString[] = [];
+
+  for (const node of nodes) {
+    // Seules les strings module-scope nous intéressent
+    if (hasEnclosingFunction(node)) continue;
+
+    const parent = node.getParent();
+    if (!parent) continue;
+
+    // Exclure les contextes purement techniques (pas traduisibles)
+    if (Node.isPropertyAssignment(parent) && parent.getNameNode() === node) continue;
+    if (Node.isPropertyAssignment(parent) && TECHNICAL_PROPERTY_NAMES.has(parent.getName())) continue;
+    if (Node.isNewExpression(parent)) continue;
+    if (Node.isCallExpression(parent)) {
+      const callee = parent.getExpression().getText();
+      if (/^(console\.\w+|require|Error|JSON\.\w+|parseInt|parseFloat|fetch|cva|cn|clsx|twMerge|classNames|classnames|css|styled|tv|t|translate)$/.test(callee)) continue;
+    }
+
+    // Exclure les contextes structurels (imports, types, enums)
+    let skip = false;
+    let current: Node | undefined = parent;
+    while (current) {
+      if (Node.isImportDeclaration(current) || Node.isExportDeclaration(current)) { skip = true; break; }
+      if (Node.isTypeAliasDeclaration(current) || Node.isInterfaceDeclaration(current)) { skip = true; break; }
+      if (Node.isEnumDeclaration(current)) { skip = true; break; }
+      current = current.getParent();
+    }
+    if (skip) continue;
+
+    const value = node.getLiteralValue().trim();
+    if (!value) continue;
+
+    const key = keyMap.get(value);
+    if (!key) continue;
+
+    results.push({
+      value,
+      key,
+      line: node.getStartLineNumber(),
+      column: node.getStart() - node.getStartLinePos() + 1,
+    });
+  }
+
+  return results;
+}
+
 /**
  * Remplace les StringLiteral traduisibles par t("clé").
  * Ne touche QUE les strings à l'intérieur de fonctions (pas module-scope).

@@ -10,7 +10,7 @@ import {
 } from 'ts-morph';
 import { rewriteJsx } from './jsx-rewriter.js';
 import { rewriteAttributes } from './attr-rewriter.js';
-import { rewriteStringLiterals } from './const-rewriter.js';
+import { rewriteStringLiterals, findModuleScopeStrings, type ModuleScopeString } from './const-rewriter.js';
 
 export interface RewriteOptions {
   /** Mapping { valeur originale → clé i18n } produit par le generator. */
@@ -19,10 +19,19 @@ export interface RewriteOptions {
   silent?: boolean;
 }
 
+export interface UnrewrittenString {
+  filePath: string;
+  value: string;
+  key: string;
+  line: number;
+}
+
 export interface RewriteResult {
   filesModified: number;
   filesSkipped: number;
   totalReplaced: number;
+  /** Strings traduites dans le JSON mais non réécrites (module-scope). */
+  moduleScopeStrings: UnrewrittenString[];
 }
 
 type FunctionLike = FunctionDeclaration | ArrowFunction | FunctionExpression;
@@ -153,10 +162,18 @@ export async function rewriteFiles(
   let filesModified = 0;
   let filesSkipped = 0;
   let totalReplaced = 0;
+  const moduleScopeStrings: UnrewrittenString[] = [];
 
   for (const filePath of filePaths) {
     try {
       const sourceFile = project.addSourceFileAtPath(filePath);
+
+      // Détecter les strings module-scope AVANT la réécriture
+      const moduleScope = findModuleScopeStrings(sourceFile, keyMap);
+      for (const s of moduleScope) {
+        moduleScopeStrings.push({ filePath, value: s.value, key: s.key, line: s.line });
+      }
+
       const replaced = rewriteSourceFile(sourceFile, keyMap);
 
       if (replaced === 0) {
@@ -194,5 +211,5 @@ export async function rewriteFiles(
     if (filesModified > 0) console.log('Backups disponibles dans *.backup');
   }
 
-  return { filesModified, filesSkipped, totalReplaced };
+  return { filesModified, filesSkipped, totalReplaced, moduleScopeStrings };
 }
