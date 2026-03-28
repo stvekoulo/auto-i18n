@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'fs/promises';
 import { join, resolve } from 'path';
 import { type ExtractedString } from '../scanner/string-extractor.js';
-import { rawKey, KeyRegistry } from './key-builder.js';
+import { rawKey } from './key-builder.js';
 
 export type { ExtractedString } from '../scanner/string-extractor.js';
 
@@ -10,6 +10,12 @@ export interface GenerateOptions {
   sourceLocale: string;
   /** Chemin du dossier messages (ex: "./messages"). */
   messagesDir: string;
+  /**
+   * Messages existants à préserver (pour sync incrémental).
+   * Les clés existantes sont conservées ; seules les nouvelles strings reçoivent de nouvelles clés.
+   * Le JSON résultant contient TOUS les messages (existants + nouveaux).
+   */
+  existingMessages?: Record<string, string>;
 }
 
 export interface GenerateResult {
@@ -22,20 +28,36 @@ export interface GenerateResult {
   messages: Record<string, string>;
   /** Chemin absolu du fichier JSON généré. */
   outputPath: string;
+  /** Nombre de nouvelles clés ajoutées (0 si toutes existaient déjà). */
+  newCount: number;
 }
 
 /**
  * Génère le fichier de traduction source à partir de la liste de strings extraites.
+ *
+ * En mode incrémental (existingMessages fourni) :
+ *   - Les strings déjà présentes gardent leur clé existante (stable pour le code).
+ *   - Les nouvelles strings reçoivent une clé unique qui n'entre pas en collision.
+ *   - Le JSON résultant contient toutes les entrées (existantes + nouvelles).
  */
 export async function generateMessages(
   strings: ExtractedString[],
   options: GenerateOptions,
 ): Promise<GenerateResult> {
-  const { sourceLocale, messagesDir } = options;
+  const { sourceLocale, messagesDir, existingMessages = {} } = options;
 
+  // Map inverse : valeur existante → clé (pour réutiliser les clés connues)
+  const existingValueToKey = new Map<string, string>();
+  for (const [key, value] of Object.entries(existingMessages)) {
+    existingValueToKey.set(value, key);
+  }
+
+  // Ensemble de toutes les clés déjà prises (pour éviter les collisions)
+  const takenKeys = new Set(Object.keys(existingMessages));
+
+  // Dédupliquer les valeurs scannées
   const uniqueValues: string[] = [];
   const seen = new Set<string>();
-
   for (const s of strings) {
     if (!seen.has(s.value)) {
       seen.add(s.value);
@@ -43,16 +65,31 @@ export async function generateMessages(
     }
   }
 
-  const registry = new KeyRegistry();
   const keyMap = new Map<string, string>();
+  let newCount = 0;
 
   for (const value of uniqueValues) {
+    // Réutiliser la clé existante si disponible
+    const existingKey = existingValueToKey.get(value);
+    if (existingKey) {
+      keyMap.set(value, existingKey);
+      continue;
+    }
+
+    // Nouvelle string : générer une clé unique qui ne collision pas
     const base = rawKey(value);
-    const key = registry.resolve(base);
+    let key = base;
+    let n = 2;
+    while (takenKeys.has(key)) {
+      key = `${base}_${n++}`;
+    }
+    takenKeys.add(key);
     keyMap.set(value, key);
+    newCount++;
   }
 
-  const messages: Record<string, string> = {};
+  // Messages finaux = messages existants (préservés) + nouvelles entrées
+  const messages: Record<string, string> = { ...existingMessages };
   for (const [value, key] of keyMap) {
     messages[key] = value;
   }
@@ -67,5 +104,5 @@ export async function generateMessages(
   const outputPath = join(absMessagesDir, `${sourceLocale}.json`);
   await writeFile(outputPath, JSON.stringify(sortedMessages, null, 2) + '\n', 'utf-8');
 
-  return { keyMap, messages: sortedMessages, outputPath };
+  return { keyMap, messages: sortedMessages, outputPath, newCount };
 }

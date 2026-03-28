@@ -295,4 +295,103 @@ describe('generateMessages', () => {
       }
     });
   });
+
+  describe('newCount', () => {
+    it('retourne le nombre de nouvelles clés (sans existingMessages)', async () => {
+      const dir = await makeTmpDir();
+      const { newCount } = await generateMessages(
+        [str('Bonjour'), str('Au revoir')],
+        { sourceLocale: 'fr', messagesDir: dir },
+      );
+      expect(newCount).toBe(2);
+    });
+
+    it('retourne 0 si toutes les strings sont déjà dans existingMessages', async () => {
+      const dir = await makeTmpDir();
+      const { newCount } = await generateMessages(
+        [str('Bonjour'), str('Au revoir')],
+        {
+          sourceLocale: 'fr',
+          messagesDir: dir,
+          existingMessages: { bonjour: 'Bonjour', au_revoir: 'Au revoir' },
+        },
+      );
+      expect(newCount).toBe(0);
+    });
+
+    it('retourne le bon compte pour un ajout partiel', async () => {
+      const dir = await makeTmpDir();
+      const { newCount } = await generateMessages(
+        [str('Bonjour'), str('Au revoir'), str('Merci')],
+        {
+          sourceLocale: 'fr',
+          messagesDir: dir,
+          existingMessages: { bonjour: 'Bonjour', au_revoir: 'Au revoir' },
+        },
+      );
+      expect(newCount).toBe(1);
+    });
+  });
+
+  describe('merge incrémental avec existingMessages', () => {
+    it('préserve les clés existantes à l\'identique', async () => {
+      const dir = await makeTmpDir();
+      const { keyMap, messages } = await generateMessages(
+        [str('Bonjour'), str('Au revoir')],
+        {
+          sourceLocale: 'fr',
+          messagesDir: dir,
+          existingMessages: { bonjour: 'Bonjour', au_revoir: 'Au revoir' },
+        },
+      );
+      expect(keyMap.get('Bonjour')).toBe('bonjour');
+      expect(keyMap.get('Au revoir')).toBe('au_revoir');
+      expect(messages['bonjour']).toBe('Bonjour');
+    });
+
+    it('conserve les clés existantes même si la string disparaît du scan', async () => {
+      const dir = await makeTmpDir();
+      // Scan ne trouve que "Bonjour", mais "Au revoir" était déjà dans existingMessages
+      const { messages } = await generateMessages(
+        [str('Bonjour')],
+        {
+          sourceLocale: 'fr',
+          messagesDir: dir,
+          existingMessages: { bonjour: 'Bonjour', au_revoir: 'Au revoir' },
+        },
+      );
+      // "au_revoir" doit rester dans le JSON (pour ne pas casser les t() déjà en place)
+      expect(messages['au_revoir']).toBe('Au revoir');
+      expect(messages['bonjour']).toBe('Bonjour');
+    });
+
+    it('génère une nouvelle clé sans collision avec les existantes', async () => {
+      const dir = await makeTmpDir();
+      // "Bonjour !" produirait aussi "bonjour" → doit devenir "bonjour_2"
+      const { keyMap } = await generateMessages(
+        [str('Bonjour !')],
+        {
+          sourceLocale: 'fr',
+          messagesDir: dir,
+          existingMessages: { bonjour: 'Bonjour' },
+        },
+      );
+      expect(keyMap.get('Bonjour !')).toBe('bonjour_2');
+    });
+
+    it('la clé existante est réutilisée même avec une collision potentielle', async () => {
+      const dir = await makeTmpDir();
+      // Les deux strings sont déjà dans existingMessages avec leurs clés
+      const { keyMap } = await generateMessages(
+        [str('Bonjour'), str('Bonjour !')],
+        {
+          sourceLocale: 'fr',
+          messagesDir: dir,
+          existingMessages: { bonjour: 'Bonjour', bonjour_2: 'Bonjour !' },
+        },
+      );
+      expect(keyMap.get('Bonjour')).toBe('bonjour');
+      expect(keyMap.get('Bonjour !')).toBe('bonjour_2');
+    });
+  });
 });

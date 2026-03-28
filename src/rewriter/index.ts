@@ -10,7 +10,7 @@ import {
 } from 'ts-morph';
 import { rewriteJsx } from './jsx-rewriter.js';
 import { rewriteAttributes } from './attr-rewriter.js';
-import { rewriteStringLiterals, findModuleScopeStrings, type ModuleScopeString } from './const-rewriter.js';
+import { rewriteStringLiterals, findModuleScopeStrings } from './const-rewriter.js';
 
 export interface RewriteOptions {
   /** Mapping { valeur originale → clé i18n } produit par le generator. */
@@ -26,12 +26,22 @@ export interface UnrewrittenString {
   line: number;
 }
 
+export interface FileRewriteDetail {
+  filePath: string;
+  replaced: number;
+  skipped: boolean;
+  error?: string;
+  moduleScopeCount: number;
+}
+
 export interface RewriteResult {
   filesModified: number;
   filesSkipped: number;
   totalReplaced: number;
   /** Strings traduites dans le JSON mais non réécrites (module-scope). */
   moduleScopeStrings: UnrewrittenString[];
+  /** Détail par fichier traité. */
+  details: FileRewriteDetail[];
 }
 
 type FunctionLike = FunctionDeclaration | ArrowFunction | FunctionExpression;
@@ -163,6 +173,7 @@ export async function rewriteFiles(
   let filesSkipped = 0;
   let totalReplaced = 0;
   const moduleScopeStrings: UnrewrittenString[] = [];
+  const details: FileRewriteDetail[] = [];
 
   for (const filePath of filePaths) {
     try {
@@ -178,6 +189,7 @@ export async function rewriteFiles(
 
       if (replaced === 0) {
         filesSkipped++;
+        details.push({ filePath, replaced: 0, skipped: true, moduleScopeCount: moduleScope.length });
         if (!silent) console.log(`  — ${filePath} — aucune modification nécessaire`);
         project.removeSourceFile(sourceFile);
         continue;
@@ -188,6 +200,7 @@ export async function rewriteFiles(
 
       filesModified++;
       totalReplaced += replaced;
+      details.push({ filePath, replaced, skipped: false, moduleScopeCount: moduleScope.length });
 
       if (!silent) {
         const s = replaced > 1 ? 's' : '';
@@ -197,8 +210,9 @@ export async function rewriteFiles(
       project.removeSourceFile(sourceFile);
     } catch (err) {
       filesSkipped++;
+      const msg = err instanceof Error ? err.message : String(err);
+      details.push({ filePath, replaced: 0, skipped: true, error: msg, moduleScopeCount: 0 });
       if (!silent) {
-        const msg = err instanceof Error ? err.message : String(err);
         console.log(`  ⚠ ${filePath} — erreur, fichier ignoré (${msg})`);
       }
     }
@@ -211,5 +225,5 @@ export async function rewriteFiles(
     if (filesModified > 0) console.log('Backups disponibles dans *.backup');
   }
 
-  return { filesModified, filesSkipped, totalReplaced, moduleScopeStrings };
+  return { filesModified, filesSkipped, totalReplaced, moduleScopeStrings, details };
 }
