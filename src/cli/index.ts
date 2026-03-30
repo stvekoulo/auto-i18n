@@ -16,7 +16,6 @@ import { injectAll } from '../injector/index.js';
 const MAX_FILES_DISPLAY = 10;
 const MAX_REWRITE_DISPLAY = 15;
 
-/** Affiche un groupe de fichiers avec compteur, tronqué si trop long. */
 function logFileList(
   entries: Array<[string, number]>,
   projectRoot: string,
@@ -258,7 +257,6 @@ program
       if (injResult.localeStructure.ok) logger.success('app/[locale]/ structuré');
       else if (injResult.localeStructure.error) logger.warn(`app/[locale]/ — ${injResult.localeStructure.error}`);
 
-      // Terminé
       logger.blank();
       logger.success('Internationalisation configurée avec succès !');
       logger.dim(`Langues : ${sourceLocale} → ${targetLocales.join(', ')}`);
@@ -286,7 +284,6 @@ program
 
       const sourcePath = join(resolve(config.messagesDir), `${config.sourceLocale}.json`);
 
-      // Vérifier que init a été lancé
       try {
         await access(sourcePath);
       } catch {
@@ -295,7 +292,6 @@ program
         process.exit(1);
       }
 
-      // Charger les messages existants pour le merge stable (préserver les clés)
       let existingMessages: Record<string, string> = {};
       try {
         existingMessages = JSON.parse(await readFile(sourcePath, 'utf-8')) as Record<string, string>;
@@ -439,7 +435,6 @@ program
         return;
       }
 
-      // Ajouter au config
       config.targetLocales.push(normalizedLocale);
       await saveConfig(projectRoot, config);
       logger.success(`${normalizedLocale} ajouté à ${CONFIG_FILENAME}`);

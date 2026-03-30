@@ -8,7 +8,6 @@ export type { ExtractedString } from '../scanner/string-extractor.js';
 export interface GenerateOptions {
   /** Locale de la langue source (ex: "fr"). */
   sourceLocale: string;
-  /** Chemin du dossier messages (ex: "./messages"). */
   messagesDir: string;
   /**
    * Messages existants à préserver (pour sync incrémental).
@@ -24,11 +23,8 @@ export interface GenerateResult {
    * Utilisé par le rewriter pour savoir quelle clé injecter.
    */
   keyMap: Map<string, string>;
-  /** Contenu JSON écrit dans le fichier source (clé → valeur). */
   messages: Record<string, string>;
-  /** Chemin absolu du fichier JSON généré. */
   outputPath: string;
-  /** Nombre de nouvelles clés ajoutées (0 si toutes existaient déjà). */
   newCount: number;
 }
 
@@ -46,16 +42,14 @@ export async function generateMessages(
 ): Promise<GenerateResult> {
   const { sourceLocale, messagesDir, existingMessages = {} } = options;
 
-  // Map inverse : valeur existante → clé (pour réutiliser les clés connues)
+  // Map inverse : valeur existante → clé
   const existingValueToKey = new Map<string, string>();
   for (const [key, value] of Object.entries(existingMessages)) {
     existingValueToKey.set(value, key);
   }
 
-  // Ensemble de toutes les clés déjà prises (pour éviter les collisions)
   const takenKeys = new Set(Object.keys(existingMessages));
 
-  // Dédupliquer les valeurs scannées
   const uniqueValues: string[] = [];
   const seen = new Set<string>();
   for (const s of strings) {
@@ -69,14 +63,12 @@ export async function generateMessages(
   let newCount = 0;
 
   for (const value of uniqueValues) {
-    // Réutiliser la clé existante si disponible
     const existingKey = existingValueToKey.get(value);
     if (existingKey) {
       keyMap.set(value, existingKey);
       continue;
     }
 
-    // Nouvelle string : générer une clé unique qui ne collision pas
     const base = rawKey(value);
     let key = base;
     let n = 2;

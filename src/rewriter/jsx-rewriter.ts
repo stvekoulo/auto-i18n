@@ -1,9 +1,5 @@
 import { type SourceFile, SyntaxKind, Node } from 'ts-morph';
 
-/**
- * Accède au texte brut d'un segment de template literal via le compilerNode.
- * ts-morph ne type pas publiquement `compilerNode.text`, d'où cet accès contrôlé.
- */
 function getTemplateText(node: Node): string {
   const compiler = node.compilerNode as unknown as Record<string, unknown>;
   return typeof compiler['text'] === 'string' ? compiler['text'] : '';
@@ -31,17 +27,12 @@ export function rewriteJsxText(
       node.replaceWithText(`{t("${key}")}`);
       count++;
     } catch {
-      // Skip nodes that can't be safely replaced (complex AST structures)
     }
   }
 
   return count;
 }
 
-/**
- * Remplace les template literals statiques (`Texte`) par t("clé").
- * Ignore ceux déjà à l'intérieur d'un appel t(...).
- */
 export function rewriteNoSubstitutionTemplateLiterals(
   sourceFile: SourceFile,
   keyMap: Map<string, string>,
@@ -65,7 +56,6 @@ export function rewriteNoSubstitutionTemplateLiterals(
       node.replaceWithText(`t("${key}")`);
       count++;
     } catch {
-      // Skip nodes that can't be safely replaced
     }
   }
 
@@ -110,7 +100,6 @@ export function rewriteTemplateExpressions(
       node.replaceWithText(`t("${key}", ${params})`);
       count++;
     } catch {
-      // Skip nodes that can't be safely replaced (ternaries, complex expressions)
     }
   }
 

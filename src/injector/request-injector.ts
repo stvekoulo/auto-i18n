@@ -9,9 +9,6 @@ export interface RequestInjectorResult {
 }
 
 function buildRequestContent(useSrc: boolean): string {
-  // Si src/ : i18n est dans src/i18n/ et messages dans root/messages/
-  // Depuis src/i18n/request.ts → ../../messages/ (remonter src/ puis i18n/)
-  // Sans src/ : depuis i18n/request.ts → ../messages/
   const messagesPath = useSrc ? '../../messages' : '../messages';
   return `import { getRequestConfig } from 'next-intl/server';
 import { routing } from './routing';

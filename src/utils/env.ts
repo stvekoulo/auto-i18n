@@ -2,25 +2,15 @@ import { readFile, writeFile, access } from 'fs/promises';
 import { join } from 'path';
 import { config as dotenvConfig } from 'dotenv';
 
-/**
- * Charge les variables d'environnement depuis `.env.local` puis `.env`.
- */
 export function loadEnv(projectRoot: string): void {
   dotenvConfig({ path: join(projectRoot, '.env.local') });
   dotenvConfig({ path: join(projectRoot, '.env') });
 }
 
-/**
- * Retourne la valeur d'une variable d'environnement liée à la clé API.
- */
 export function getApiKey(envVar: string): string | undefined {
   return process.env[envVar];
 }
 
-/**
- * Sauvegarde la clé API dans `.env.local`.
- * Ajoute la ligne si absente, ne duplique pas.
- */
 export async function saveApiKeyToEnv(
   projectRoot: string,
   envVar: string,
@@ -48,9 +38,6 @@ export async function saveApiKeyToEnv(
   await writeFile(envPath, content, 'utf-8');
 }
 
-/**
- * Ajoute les entrées manquantes au `.gitignore` du projet.
- */
 export async function ensureGitignore(
   projectRoot: string,
   entries: string[],

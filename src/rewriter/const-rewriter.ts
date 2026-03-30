@@ -5,7 +5,7 @@ import {
 } from 'ts-morph';
 
 /**
- * Noms de propriétés dont les valeurs sont techniques — on ne les réécrit pas.
+ * Noms de propriétés dont les valeurs sont techniques
  */
 const TECHNICAL_PROPERTY_NAMES = new Set([
   'key', 'id', 'className', 'class', 'style', 'type',
@@ -21,7 +21,6 @@ const TECHNICAL_PROPERTY_NAMES = new Set([
   'padding', 'margin', 'gap', 'display', 'position', 'overflow',
 ]);
 
-/** Vérifie si un nœud est à l'intérieur d'un corps de fonction. */
 function hasEnclosingFunction(node: Node): boolean {
   let current = node.getParent();
   while (current) {
@@ -44,10 +43,8 @@ function isNonRewritableContext(node: Node): boolean {
   const parent = node.getParent();
   if (!parent) return true;
 
-  // ── Ne jamais réécrire au module-scope (t() inaccessible) ──
   if (!hasEnclosingFunction(node)) return true;
 
-  // Clé de propriété (pas la valeur)
   if (Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return true;
 
   // Valeur d'une propriété technique
@@ -56,10 +53,8 @@ function isNonRewritableContext(node: Node): boolean {
     if (TECHNICAL_PROPERTY_NAMES.has(propName)) return true;
   }
 
-  // Valeur par défaut d'un paramètre : function foo(x = "default")
   if (parent.getKind() === SyntaxKind.Parameter) return true;
 
-  // Valeur par défaut de destructuring : const { x = "default" } = props
   if (parent.getKind() === SyntaxKind.BindingElement) return true;
 
   // new Error(), etc.
@@ -74,7 +69,6 @@ function isNonRewritableContext(node: Node): boolean {
     if (/^(cva|cn|clsx|twMerge|classNames|classnames|css|styled|tv)$/.test(callee)) return true;
   }
 
-  // Arguments d'un appel à cva/cn/clsx (peut être imbriqué)
   let current: Node | undefined = parent;
   while (current) {
     if (Node.isImportDeclaration(current) || Node.isExportDeclaration(current)) return true;
@@ -99,11 +93,6 @@ export interface ModuleScopeString {
   column: number;
 }
 
-/**
- * Identifie les strings traduisibles qui sont au module-scope
- * et ne peuvent donc pas être réécrites avec t().
- * Ces strings sont dans le JSON mais le code source reste intact.
- */
 export function findModuleScopeStrings(
   sourceFile: SourceFile,
   keyMap: Map<string, string>,
@@ -118,7 +107,6 @@ export function findModuleScopeStrings(
     const parent = node.getParent();
     if (!parent) continue;
 
-    // Exclure les contextes purement techniques (pas traduisibles)
     if (Node.isPropertyAssignment(parent) && parent.getNameNode() === node) continue;
     if (Node.isPropertyAssignment(parent) && TECHNICAL_PROPERTY_NAMES.has(parent.getName())) continue;
     if (Node.isNewExpression(parent)) continue;
@@ -155,11 +143,6 @@ export function findModuleScopeStrings(
   return results;
 }
 
-/**
- * Remplace les StringLiteral traduisibles par t("clé").
- * Ne touche QUE les strings à l'intérieur de fonctions (pas module-scope).
- * Retourne le nombre de remplacements effectués.
- */
 export function rewriteStringLiterals(
   sourceFile: SourceFile,
   keyMap: Map<string, string>,
@@ -179,7 +162,6 @@ export function rewriteStringLiterals(
       node.replaceWithText(`t("${key}")`);
       count++;
     } catch {
-      // Skip nodes that can't be safely replaced
     }
   }
 

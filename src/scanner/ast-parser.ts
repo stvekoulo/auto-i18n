@@ -22,10 +22,6 @@ function getSharedProject(): Project {
   return _sharedProject;
 }
 
-/**
- * Parse un fichier depuis le disque via ts-morph.
- * Utilisé en production lors du scan du projet.
- */
 export function parseFile(filePath: string): SourceFile {
   const project = getSharedProject();
   const existing = project.getSourceFile(filePath);
@@ -33,10 +29,6 @@ export function parseFile(filePath: string): SourceFile {
   return project.addSourceFileAtPath(filePath);
 }
 
-/**
- * Parse une string de code source en mémoire via ts-morph.
- * Principalement utilisé dans les tests.
- */
 export function parseSource(content: string, filePath: string = 'virtual.tsx'): SourceFile {
   const project = new Project({
     compilerOptions: COMPILER_OPTIONS,

@@ -28,9 +28,7 @@ export async function findLayoutFile(projectRoot: string): Promise<string | null
   return null;
 }
 
-/** Trouve la fonction qui contient {children} en JSX (la fonction layout). */
 function findLayoutFunction(sf: SourceFile) {
-  // FunctionDeclaration (export default function RootLayout)
   for (const fn of sf.getFunctions()) {
     const hasChildren = fn
       .getDescendantsOfKind(SyntaxKind.JsxExpression)

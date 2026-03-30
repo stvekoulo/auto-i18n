@@ -65,10 +65,6 @@ export function buildConfig(
   };
 }
 
-/**
- * Compare les clés du fichier source avec celles d'un fichier cible
- * et retourne les clés manquantes dans le fichier cible.
- */
 export function findMissingKeys(
   source: Record<string, string>,
   target: Record<string, string>,

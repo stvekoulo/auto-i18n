@@ -1,4 +1,3 @@
-/** Erreur spécifique au client DeepL avec code HTTP optionnel. */
 export class DeepLError extends Error {
   constructor(
     message: string,
@@ -28,10 +27,6 @@ function protectPlaceholders(text: string): string {
   return escaped.replace(/\{([^}]+)\}/g, (_, name: string) => `<x>${name}</x>`);
 }
 
-/**
- * Restaure les placeholders `{varname}` depuis les balises `<x>` retournées par DeepL.
- * Déséchappe également les entités XML du texte libre.
- */
 function restorePlaceholders(text: string): string {
   const restored = text.replace(/<x>\s*([^<]*?)\s*<\/x>/gi, '{$1}');
   return restored

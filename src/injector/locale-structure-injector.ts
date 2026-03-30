@@ -43,7 +43,6 @@ export async function injectLocaleStructure(
 
   const localeDir = join(appDir, '[locale]');
 
-  // Si le dossier [locale] existe déjà, vérifier si le layout a le LanguageSwitcher
   let localeExists = false;
   try {
     await access(localeDir);
@@ -53,7 +52,6 @@ export async function injectLocaleStructure(
   }
 
   if (localeExists) {
-    // Même si [locale]/ existe, s'assurer que layout.tsx contient LanguageSwitcher
     const localeLayoutPath = join(localeDir, 'layout.tsx');
     const switcherImportPath = '../../components/LanguageSwitcher';
     const routingImportPath = '../../i18n/routing';
@@ -85,7 +83,6 @@ export async function injectLocaleStructure(
     movedFiles.push(entry.name);
   }
 
-  // Générer app/[locale]/layout.tsx avec le provider
   const localeLayoutPath = join(localeDir, 'layout.tsx');
   const routingImportPath = useSrc ? '../../i18n/routing' : '../../i18n/routing';
   const switcherImportPath = useSrc ? '../../components/LanguageSwitcher' : '../../components/LanguageSwitcher';
@@ -102,11 +99,6 @@ export async function injectLocaleStructure(
   return { modified: true, skipped: false, movedFiles };
 }
 
-/**
- * Vérifie si un [locale]/layout.tsx existant contient le LanguageSwitcher.
- * Si non, l'injecte (import + composant dans le JSX).
- * Retourne true si le fichier a été modifié.
- */
 async function ensureLocaleLayoutHasSwitcher(
   layoutPath: string,
   routingImportPath: string,
@@ -176,16 +168,11 @@ export default async function LocaleLayout({
 `;
 }
 
-/**
- * Réécrit le root layout pour en faire un HTML shell minimal.
- * Préserve les imports CSS/fonts existants.
- */
 async function rewriteRootLayout(layoutPath: string): Promise<void> {
   await copyFile(layoutPath, `${layoutPath}.backup`);
 
   const content = await readFile(layoutPath, 'utf-8');
 
-  // Extraire les imports CSS/fonts existants (ex: import './globals.css')
   const cssImports: string[] = [];
   const fontImports: string[] = [];
   const otherImports: string[] = [];
@@ -199,7 +186,6 @@ async function rewriteRootLayout(layoutPath: string): Promise<void> {
     }
   }
 
-  // Extraire les déclarations de font (ex: const inter = Inter({ ... }))
   const fontDeclRegex = /^const\s+\w+\s*=\s*\w+\(\{[^}]*\}\);?\s*$/gm;
   const fontDecls: string[] = [];
   let match;
@@ -207,8 +193,6 @@ async function rewriteRootLayout(layoutPath: string): Promise<void> {
     fontDecls.push(match[0]);
   }
 
-  // Extraire l'ouverture complète du tag <body> (attributs préservés verbatim)
-  // On capture tout entre <body et le premier > non imbriqué dans {}
   let bodyTag = '<body>';
   const bodyTagMatch = content.match(/<body[^>]*>/);
   if (bodyTagMatch) {

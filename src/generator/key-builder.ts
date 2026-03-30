@@ -1,14 +1,5 @@
-/** Longueur maximale d'une clé i18n générée. */
-const MAX_KEY_LENGTH = 40;
+const MAX_KEY_LENGTH = 60;
 
-/**
- * Génère une clé i18n brute à partir d'une string traduite.
- * @example
- * rawKey("Bonjour")                          // "bonjour"
- * rawKey("Bienvenue sur notre site !")       // "bienvenue_sur_notre_site"
- * rawKey("Salut {name}")                     // "salut_name"
- * rawKey("Bonjour {user.name}, bienvenue !") // "bonjour_user_name_bienvenue"
- */
 export function rawKey(value: string): string {
   let key = value;
 
@@ -31,21 +22,9 @@ export function rawKey(value: string): string {
   return key || 'key';
 }
 
-/**
- * Registre de clés i18n déjà utilisées dans une session de génération.
- * @example
- * const reg = new KeyRegistry();
- * reg.resolve("bonjour")  // "bonjour"  (première occurrence)
- * reg.resolve("bonjour")  // "bonjour_2" (collision)
- * reg.resolve("bonjour")  // "bonjour_3"
- */
 export class KeyRegistry {
   private readonly usedKeys = new Set<string>();
 
-  /**
-   * Retourne `baseKey` si disponible, sinon `baseKey_2`, `baseKey_3`…
-   * Enregistre et retourne la clé résolue.
-   */
   resolve(baseKey: string): string {
     if (!this.usedKeys.has(baseKey)) {
       this.usedKeys.add(baseKey);

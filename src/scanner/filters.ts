@@ -75,7 +75,7 @@ const NUMERIC_WITH_AFFIX_RE =
   /^[€$£¥₩₹฿]?\s*\d[\d\s.,]*\s*[€$£¥₩₹฿%+×xkKmMbB]*[+]?$|^[€$£¥₩₹฿]\s*\d[\d\s.,]*$/;
 
 /**
- * String composée uniquement d'emojis, symboles ou ponctuation (aucune lettre ni chiffre).
+ * String composée uniquement d'emojis, symboles ou ponctuation
  * Ex: "🏋️", "🥊", "✓", "★", "→"
  */
 function isSymbolOrEmojiOnly(value: string): boolean {
@@ -140,7 +140,7 @@ function isSingleCssToken(value: string): boolean {
 }
 
 /**
- * Retourne `true` si la string doit être ignorée (non traduite).
+ * Retourne `true` si la string doit être ignorée.
  */
 export function shouldIgnore(value: string, options?: FilterOptions): boolean {
   const trimmed = value.trim();

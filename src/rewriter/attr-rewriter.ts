@@ -18,10 +18,8 @@ export function rewriteAttributes(
     let value: string | null = null;
 
     if (Node.isStringLiteral(initializer)) {
-      // placeholder="Chercher"
       value = initializer.getLiteralValue().trim();
     } else if (Node.isJsxExpression(initializer)) {
-      // placeholder={"Chercher"}  — déjà expression mais string literal
       const inner = initializer.getExpression();
       if (inner && Node.isStringLiteral(inner)) {
         value = inner.getLiteralValue().trim();
@@ -37,7 +35,6 @@ export function rewriteAttributes(
       initializer.replaceWithText(`{t("${key}")}`);
       count++;
     } catch {
-      // Skip attributes that can't be safely replaced
     }
   }
 

@@ -12,10 +12,9 @@ const DEFAULT_IGNORE_DIRS = new Set([
   'node_modules', '.next', '.git', 'dist', 'build', 'out',
   '.turbo', '.cache', 'coverage', '.vercel', 'public',
   'i18n', 'messages',
-  'ui', // shadcn / primitives UI — ne doivent pas être traduits
+  'ui', 
 ]);
 
-/** Fichiers générés par next-auto-i18n — jamais scannés ni réécrits. */
 const GENERATED_FILES = new Set([
   'LanguageSwitcher.tsx',
   'LanguageSwitcher.jsx',
@@ -33,10 +32,6 @@ const CONFIG_FILE_NAMES = new Set([
   'prettier.config.js', 'prettier.config.ts',
 ]);
 
-/**
- * Dossiers Next.js conventionnels contenant des composants.
- * Les fichiers en dehors de ces dossiers (ex: scripts .mjs à la racine) sont ignorés.
- */
 const NEXT_APP_DIRS = new Set([
   'app', 'src', 'pages', 'components', 'lib', 'hooks', 'utils',
 ]);
@@ -82,7 +77,6 @@ async function collectFiles(rootDir: string, options: ScanOptions): Promise<stri
       const fullPath = join(dir, entry.name);
 
       if (entry.isDirectory()) {
-        // À la racine du projet, ne descendre que dans les dossiers Next.js conventionnels
         if (depth === 0 && !NEXT_APP_DIRS.has(entry.name)) continue;
         await walk(fullPath, depth + 1);
         continue;
@@ -96,7 +90,6 @@ async function collectFiles(rootDir: string, options: ScanOptions): Promise<stri
       if (entry.name.includes('.test.') || entry.name.includes('.spec.')) continue;
       if (entry.name.startsWith('.')) continue;
 
-      // Vérifier les glob patterns (chemin relatif depuis la racine)
       if (ignoreRegexes.length > 0) {
         const relPath = relative(rootDir, fullPath).replace(/\\/g, '/');
         if (ignoreRegexes.some(re => re.test(relPath) || re.test(entry.name))) continue;
@@ -111,8 +104,6 @@ async function collectFiles(rootDir: string, options: ScanOptions): Promise<stri
 }
 
 /**
- * Scanne un projet entier et retourne toutes les strings traduisibles.
- *
  * @param rootPath - Chemin racine du projet à scanner
  * @param options  - Options de scan et de filtrage
  */

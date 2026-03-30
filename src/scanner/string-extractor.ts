@@ -1,9 +1,5 @@
 import { type SourceFile, SyntaxKind, Node } from 'ts-morph';
 
-/**
- * Accède au texte brut d'un segment de template literal via le compilerNode.
- * ts-morph ne type pas publiquement `compilerNode.text`, d'où cet accès contrôlé.
- */
 function getTemplateText(node: Node): string {
   const compiler = node.compilerNode as unknown as Record<string, unknown>;
   return typeof compiler['text'] === 'string' ? compiler['text'] : '';
@@ -27,10 +23,6 @@ export interface ExtractedString {
   variables?: string[];
 }
 
-/**
- * Attributs JSX dont la valeur string est considérée traduisible.
- * Exporté pour être réutilisé par le module rewriter.
- */
 export const TRANSLATABLE_ATTRIBUTES = new Set([
   'placeholder',
   'alt',
@@ -43,7 +35,6 @@ export const TRANSLATABLE_ATTRIBUTES = new Set([
   'content',
 ]);
 
-/** Attributs JSX dont la valeur NE doit PAS être traduite (CSS, technique). */
 const NON_TRANSLATABLE_ATTRIBUTES = new Set([
   'className', 'class', 'style', 'id', 'key', 'href', 'src', 'srcSet',
   'type', 'name', 'value', 'htmlFor', 'data-testid', 'data-cy',
@@ -112,10 +103,8 @@ function isInNonExtractableContext(node: Node): boolean {
     if (TECHNICAL_PROPERTY_NAMES.has(propName)) return true;
   }
 
-  // Valeur par défaut d'un paramètre : function foo(x = "default")
   if (parent.getKind() === SyntaxKind.Parameter) return true;
 
-  // Valeur par défaut de destructuring : const { x = "default" } = props
   if (parent.getKind() === SyntaxKind.BindingElement) return true;
 
   // new Error(), new TypeError(), etc.
@@ -233,8 +222,6 @@ export function extractStrings(sourceFile: SourceFile, filePath: string): Extrac
     });
   }
 
-  // String literals dans les déclarations de variables, objets, tableaux
-  // (ex: const data = [{ name: "Salle de musculation" }])
   for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.StringLiteral)) {
     if (isFirstArgOfTCall(node)) continue;
     if (isInNonExtractableContext(node)) continue;

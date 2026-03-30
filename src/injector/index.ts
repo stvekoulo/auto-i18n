@@ -24,7 +24,6 @@ export type { LocaleStructureResult } from './locale-structure-injector.js';
 export interface InjectOptions {
   /** Racine du projet Next.js cible. */
   projectRoot: string;
-  /** Liste des locales (ex: ['fr', 'en', 'es']). */
   locales: string[];
   /** Locale source par défaut (ex: 'fr'). */
   defaultLocale: string;
@@ -82,7 +81,7 @@ export async function injectAll(options: InjectOptions): Promise<InjectAllResult
     result.routing = { ok: false, skipped: false, error };
   }
 
-  // 4. Request config (i18n/request.ts) — requis pour les Server Components
+  // 4. Request config (i18n/request.ts)
   try {
     const r = await injectRequest(projectRoot, { silent });
     result.request = { ok: true, skipped: r.skipped };

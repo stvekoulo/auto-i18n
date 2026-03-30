@@ -8,10 +8,6 @@ export interface SwitcherInjectorResult {
   filePath: string;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Component template                                                 */
-/* ------------------------------------------------------------------ */
-
 function buildSwitcherComponent(routingImportPath: string): string {
   return `'use client';
 
@@ -19,10 +15,6 @@ import { usePathname, useRouter } from 'next/navigation';
 import { routing } from '${routingImportPath}';
 import { useState, useRef, useEffect } from 'react';
 
-/* ══════════════════════════════════════════════════════════════════════
- *  CUSTOMIZATION — Modify these values to match your brand.
- *  ⚠ Do NOT remove the attribution section — it is required by the license.
- * ══════════════════════════════════════════════════════════════════════ */
 const SWITCHER_CONFIG = {
   /** Position of the floating widget: 'bottom-right' | 'bottom-left' */
   position: 'bottom-right' as 'bottom-right' | 'bottom-left',
@@ -287,19 +279,10 @@ export function LanguageSwitcher() {
 `;
 }
 
-/* ------------------------------------------------------------------ */
-/*  Public API                                                         */
-/* ------------------------------------------------------------------ */
-
-/**
- * Génère le composant LanguageSwitcher.tsx dans le projet cible.
- * L'import dans le layout est géré par locale-structure-injector.
- */
 export async function injectLanguageSwitcher(
   projectRoot: string,
   options: { silent?: boolean } = {},
 ): Promise<SwitcherInjectorResult> {
-  // Detect project structure via layout location
   const layoutPath = await findLayoutFile(projectRoot);
   if (!layoutPath) {
     throw new Error('layout.tsx introuvable — impossible d\'injecter le LanguageSwitcher');
@@ -311,24 +294,17 @@ export async function injectLanguageSwitcher(
   const componentsDir = join(baseDir, 'components');
   const switcherPath = join(componentsDir, 'LanguageSwitcher.tsx');
 
-  // Skip if already exists
   try {
     await access(switcherPath);
     if (!options.silent) console.log(`  — ${switcherPath} — déjà présent`);
     return { modified: false, skipped: true, filePath: switcherPath };
   } catch {
-    /* file absent → create it */
   }
 
-  // Create components/ directory if needed
   await mkdir(componentsDir, { recursive: true });
 
-  // Compute the relative import path for routing
-  // Avec src/ : src/components/ → src/i18n/routing = ../i18n/routing
-  // Sans src/ : components/ → i18n/routing = ../i18n/routing
   const routingImportPath = '../i18n/routing';
 
-  // Write the component file
   await writeFile(switcherPath, buildSwitcherComponent(routingImportPath), 'utf-8');
 
   if (!options.silent) console.log(`  ✓ ${switcherPath} — créé`);

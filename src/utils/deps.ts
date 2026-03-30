@@ -7,10 +7,6 @@ const execFileAsync = promisify(execFile);
 
 type PackageManager = 'npm' | 'yarn' | 'pnpm';
 
-/**
- * Détecte le package manager utilisé dans le projet en cherchant les lockfiles.
- * Fallback : npm.
- */
 export async function detectPackageManager(projectRoot: string): Promise<PackageManager> {
   const checks: [string, PackageManager][] = [
     ['pnpm-lock.yaml', 'pnpm'],
@@ -45,9 +41,6 @@ export async function isPackageInstalled(projectRoot: string, packageName: strin
   }
 }
 
-/**
- * Installe un package npm dans le projet cible.
- */
 export async function installPackage(
   projectRoot: string,
   packageName: string,
