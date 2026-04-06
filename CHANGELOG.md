@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.6.0] - 2026-04-06
+
+### Added
+
+- **Commande `extract`** : nouvelle commande qui scanne le projet, génère les fichiers de traduction et produit un guide d'intégration Markdown (`i18n-guide.md`) — **sans modifier aucun fichier source**. Idéal pour les projets où la réécriture automatique est risquée ou non souhaitée.
+  - Option `--out <path>` : chemin personnalisé du guide généré (défaut : `i18n-guide.md`)
+  - Option `--locale <locales>` : langues cibles si aucune config n'existe
+  - Fonctionne sans `auto-i18n.config.json` (prompts interactifs en fallback)
+  - Le guide inclut : résumé, liste des fichiers générés, exemples d'utilisation client/serveur, section dédiée aux strings module-scope, tableaux par fichier (ligne / type / clé / code à utiliser), référence complète des clés
+
+- **Détection des strings module-scope** : les strings dans des `const` déclarées en dehors d'un composant (niveau module) sont désormais détectées et signalées explicitement. Elles sont traduites dans les fichiers JSON mais le code source n'est pas réécrit automatiquement (la fonction `t()` n'est accessible qu'à l'intérieur d'un composant).
+  - Avertissement en CLI avec fichier + numéro de ligne + valeur + clé
+  - Guidance : « Déplacez ces const dans vos composants pour utiliser `t("clé")` »
+  - Section dédiée dans le guide Markdown généré par `extract`
+
+- **Sortie CLI détaillée** : toutes les commandes affichent maintenant des informations enrichies.
+  - `init` / `sync` : liste des fichiers scannés avec nombre de strings, détail par fichier modifié (remplacements effectués), compteur de fichiers sans modification nécessaire
+  - `sync` : affichage du nombre de clés existantes au départ, distinction nouvelles clés vs clés déjà à jour
+  - `add-locale` : affichage du chemin du fichier généré
+  - `missing` : total de clés manquantes, invitation à lancer `sync`
+
+### Fixed
+
+- **Entités HTML DeepL** : les apostrophes et guillemets retournés par DeepL en mode XML (`&apos;`, `&#39;`, `&#x27;`, `&quot;`, `&#34;`) sont maintenant correctement restaurés. Corrige l'affichage `d&apos;exception` au lieu de `d'exception`.
+- **Commande `sync` — stabilité des clés** : `sync` régénérait toutes les clés depuis zéro à chaque exécution, causant des collisions et des traductions cassées. Désormais les clés existantes sont préservées (merge stable via `existingMessages`) et seules les nouvelles strings reçoivent de nouvelles clés.
+- **Commande `sync` — traduction toujours exécutée** : après `init`, le scanner trouve 0 strings (toutes déjà sous `t("clé")`). L'ancienne `sync` s'arrêtait là sans synchroniser les traductions. Maintenant l'étape de traduction s'exécute toujours, indépendamment du scan.
+- **Tests `key-builder`** : la limite de troncature des clés était documentée à 40 dans les tests mais l'implémentation utilisait 60 — les tests sont mis à jour.
+
+### Changed
+
+- `generateMessages` accepte désormais `existingMessages?: Record<string, string>` pour le merge incrémental stable.
+- `GenerateResult` expose `newCount: number` — nombre de nouvelles clés ajoutées (utile pour les logs CLI).
+- `RewriteResult` expose `moduleScopeStrings: UnrewrittenString[]` et `details: FileRewriteDetail[]` — permet un reporting précis par fichier.
+- `src/cli/doc-generator.ts` : nouveau module dédié à la génération du guide Markdown.
+
 ## [0.3.0] - 2026-03-26
 
 ### Added

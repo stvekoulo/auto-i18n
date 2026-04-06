@@ -24,6 +24,7 @@ next-auto-i18n is a CLI tool that fully automates internationalization (i18n) in
 - [Commands](#commands)
 - [How It Works](#how-it-works)
 - [Supported String Types](#supported-string-types)
+- [Module-scope Strings](#module-scope-strings)
 - [Safety & Backups](#safety--backups)
 - [DeepL API](#deepl-api)
 - [Troubleshooting](#troubleshooting)
@@ -266,6 +267,72 @@ next-auto-i18n add-locale zh
 ▸ Translating to AR
   ✓ Translation AR (42 strings)
   ✓ 42 strings translated
+```
+
+---
+
+### `next-auto-i18n extract`
+
+Scans the project, translates all strings, and generates a Markdown integration guide — **without modifying any source file**. Use this command when you want to keep full control over the integration process.
+
+```bash
+next-auto-i18n extract                         # Interactive (asks locale if no config)
+next-auto-i18n extract --locale en,es          # Skip locale prompt
+next-auto-i18n extract --out docs/i18n-guide.md  # Custom output path
+```
+
+| Flag | Description |
+|------|-------------|
+| `--locale <locales>` | Comma-separated target locales (used if no `auto-i18n.config.json` exists) |
+| `--out <path>` | Output path for the Markdown guide (default: `i18n-guide.md`) |
+
+**What it does:**
+
+1. Scans your project for translatable strings (same AST engine as `init`)
+2. Generates/updates `messages/<sourceLocale>.json` with stable key merge
+3. Translates to all target locales via DeepL (incremental — only new strings)
+4. Detects module-scope strings that require manual integration
+5. Generates `i18n-guide.md` with full integration instructions
+
+**What it does NOT do:** modify any `.tsx`/`.ts`/`.jsx`/`.js` source file.
+
+**Generated guide contents:**
+
+- Summary table (strings found, keys generated, files)
+- List of generated translation files
+- Usage examples (Client Component with `useTranslations`, Server Component with `getTranslations`)
+- Module-scope strings section with before/after code examples
+- Per-file string tables with line number, type, original text, key, and replacement code
+- Complete key reference table
+
+**Example output:**
+
+```
+▸ Configuration
+  ✓ Configuration chargée (fr → en, es)
+
+▸ Scan du projet
+  ✓ 47 strings trouvées dans 12 fichiers
+    components/Hero.tsx                              8 strings
+    components/Navbar.tsx                            5 strings
+    ...
+
+▸ Génération des clés
+  ✓ 42 clés → ./messages/fr.json
+
+▸ Traduction via DeepL
+  ✓ 84 strings traduites
+    ./messages/en.json
+    ./messages/es.json
+
+▸ Analyse du code source
+  ⚠ 3 strings module-scope détectées (action manuelle requise — voir guide)
+
+▸ Génération du guide
+  ✓ Guide généré : i18n-guide.md
+
+  ✓ Extraction terminée — aucun fichier source modifié
+  Consultez le guide pour intégrer les traductions manuellement.
 ```
 
 ---
@@ -562,6 +629,52 @@ export default function Button() {
 
 ---
 
+## Module-scope Strings
+
+Some strings live inside `const` arrays or objects declared **at module level** (outside any component body). Because `t()` can only be called inside a component, these strings cannot be auto-rewritten.
+
+**Example:**
+
+```tsx
+// ❌ Module-scope — t() is not available here
+const navItems = [
+  { label: 'Accueil', href: '/' },
+  { label: 'À propos', href: '/about' },
+];
+
+export function Navbar() {
+  return <nav>{navItems.map(i => <a href={i.href}>{i.label}</a>)}</nav>;
+}
+```
+
+**What next-auto-i18n does:**
+
+- Detects these strings via AST analysis
+- Adds them to the JSON translation files (they are translated)
+- **Does NOT rewrite the source file** — doing so would break the code
+- Warns in the CLI with file path, line number, and the target key
+- Includes guidance and a before/after example in the `extract` guide
+
+**How to fix manually:**
+
+```tsx
+// ✅ Function-scope — t() is available
+import { useTranslations } from 'next-intl';
+
+export function Navbar() {
+  const t = useTranslations();
+  const navItems = [
+    { label: t('accueil'), href: '/' },
+    { label: t('a_propos'), href: '/about' },
+  ];
+  return <nav>{navItems.map(i => <a href={i.href}>{i.label}</a>)}</nav>;
+}
+```
+
+Move the `const` declaration inside the component body so `t()` is in scope.
+
+---
+
 ## Safety & Backups
 
 ### `--dry-run` mode
@@ -775,12 +888,19 @@ npx vitest
 ```
 next-auto-i18n/
 ├── src/
-│   ├── cli/              # CLI entry point + interactive prompts
-│   ├── scanner/          # AST parsing + string extraction + filtering
-│   ├── generator/        # Key generation + JSON file creation
-│   ├── translator/       # DeepL API client + translation orchestration
-│   ├── rewriter/         # JSX/attribute rewriting via AST
-│   ├── injector/         # Next.js config injection:
+│   ├── cli/
+│   │   ├── index.ts           # CLI entry point (Commander.js) — all commands
+│   │   ├── prompts.ts         # Interactive prompts + dry-run confirmation
+│   │   └── doc-generator.ts   # Markdown guide generator (used by extract)
+│   ├── scanner/               # AST parsing + string extraction + filtering
+│   ├── generator/             # Key generation + JSON file creation
+│   ├── translator/            # DeepL API client + translation orchestration
+│   ├── rewriter/
+│   │   ├── index.ts           # Rewrite orchestration + FileRewriteDetail
+│   │   ├── jsx-rewriter.ts    # JSX text + template literal rewriting
+│   │   ├── attr-rewriter.ts   # JSX attribute rewriting
+│   │   └── const-rewriter.ts  # String literal rewriting + module-scope detection
+│   ├── injector/              # Next.js config injection:
 │   │   ├── config-injector.ts         # next.config wrapping
 │   │   ├── middleware-injector.ts     # middleware.ts / proxy.ts
 │   │   ├── routing-injector.ts        # i18n/routing.ts
@@ -788,9 +908,9 @@ next-auto-i18n/
 │   │   ├── switcher-injector.ts       # LanguageSwitcher component
 │   │   ├── locale-structure-injector.ts  # app/[locale]/ structure
 │   │   └── layout-injector.ts         # layout utilities
-│   └── utils/            # Config, env, logger, dependency utilities
-├── tests/                # Vitest test suites (298 tests)
-└── DOCUMENTATION.md      # This file
+│   └── utils/                 # Config, env, logger, dependency utilities
+├── tests/                     # Vitest test suites (343 tests)
+└── DOCUMENTATION.md           # This file
 ```
 
 ### Running tests
@@ -805,14 +925,15 @@ The test suite covers all modules:
 |--------|-------|
 | Scanner (filters) | 109 |
 | Generator (key-builder) | 39 |
-| Rewriter | 33 |
+| Rewriter | 49 |
 | Injector | 25 |
-| Translator (DeepL) | 23 |
-| Generator | 20 |
+| Translator (DeepL) | 26 |
+| Generator | 27 |
 | Scanner (string-extractor) | 20 |
 | CLI (config, env) | 18 |
 | Translator (orchestration) | 11 |
-| **Total** | **298** |
+| Doc generator | 9 |
+| **Total** | **343** |
 
 ### Submitting changes
 
@@ -829,8 +950,9 @@ The test suite covers all modules:
 
 ### v1.x — Enhancements
 
-- [x] `next-auto-i18n sync` — rescan and incremental update
+- [x] `next-auto-i18n sync` — rescan and incremental update (stable key merge)
 - [x] `next-auto-i18n missing` — report untranslated keys
+- [x] `next-auto-i18n extract` — translate + generate guide without touching source
 - [x] Floating language switcher widget (auto-injected, customizable)
 - [x] Automatic `next-intl` dependency installation
 - [x] `app/[locale]/` structure auto-creation (required by next-intl App Router)
@@ -838,6 +960,8 @@ The test suite covers all modules:
 - [x] Dynamic `<html lang>` attribute
 - [x] Next.js 16 `proxy.ts` detection
 - [x] Scan scope limited to Next.js conventional directories
+- [x] Module-scope string detection — warn instead of breaking code
+- [x] Detailed CLI output — per-file results, string counts, module-scope warnings
 - [ ] `--watch` mode — auto-sync on file changes
 - [ ] Support for Vite + React (without Next.js)
 - [ ] Custom key naming strategies

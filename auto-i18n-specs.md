@@ -157,43 +157,53 @@ npx auto-i18n init
 ## Structure du projet (repo)
 
 ```
-auto-i18n/
+next-auto-i18n/
 ├── src/
 │   ├── cli/
-│   │   ├── index.ts           # Entry point CLI (Commander.js)
-│   │   └── prompts.ts         # Questions interactives (init)
+│   │   ├── index.ts           # Entry point CLI (Commander.js) — toutes les commandes
+│   │   ├── prompts.ts         # Questions interactives + confirmation dry-run
+│   │   └── doc-generator.ts   # Générateur de guide Markdown (commande extract)
 │   ├── scanner/
 │   │   ├── index.ts           # Orchestration du scan
 │   │   ├── ast-parser.ts      # Parsing ts-morph / babel
 │   │   ├── string-extractor.ts# Extraction des strings traduisibles
 │   │   └── filters.ts         # Filtrage strings techniques
 │   ├── generator/
-│   │   ├── index.ts           # Génération fichiers JSON
+│   │   ├── index.ts           # Génération fichiers JSON (merge stable)
 │   │   └── key-builder.ts     # Construction des clés i18n
 │   ├── translator/
-│   │   ├── index.ts           # Orchestration traduction
-│   │   └── deepl.ts           # Client DeepL API
+│   │   ├── index.ts           # Orchestration traduction (incrémentale)
+│   │   └── deepl.ts           # Client DeepL API (batch, placeholders protégés)
 │   ├── rewriter/
-│   │   ├── index.ts           # Orchestration réécriture
-│   │   ├── jsx-rewriter.ts    # Remplacement strings JSX
-│   │   └── attr-rewriter.ts   # Remplacement attributs HTML
+│   │   ├── index.ts           # Orchestration réécriture + FileRewriteDetail
+│   │   ├── jsx-rewriter.ts    # Remplacement JSX text + template literals
+│   │   ├── attr-rewriter.ts   # Remplacement attributs HTML
+│   │   └── const-rewriter.ts  # Remplacement string literals + détection module-scope
 │   ├── injector/
-│   │   ├── index.ts           # Orchestration injection config
-│   │   ├── layout-injector.ts # Modification layout.tsx
-│   │   └── config-injector.ts # Modification next.config
+│   │   ├── index.ts           # Orchestration injection config Next.js
+│   │   ├── config-injector.ts # Wrapping next.config
+│   │   ├── middleware-injector.ts # middleware.ts / proxy.ts
+│   │   ├── routing-injector.ts    # i18n/routing.ts
+│   │   ├── request-injector.ts    # i18n/request.ts
+│   │   ├── switcher-injector.ts   # LanguageSwitcher component
+│   │   ├── locale-structure-injector.ts # app/[locale]/
+│   │   └── layout-injector.ts     # Utilitaires layout
 │   └── utils/
-│       ├── config.ts          # Lecture/écriture config
-│       ├── env.ts             # Gestion .env et .gitignore
-│       └── logger.ts          # Logs CLI colorés
+│       ├── config.ts          # Lecture/écriture auto-i18n.config.json
+│       ├── env.ts             # Gestion .env.local et .gitignore
+│       ├── logger.ts          # Logs CLI colorés
+│       └── deps.ts            # Vérification dépendances npm
 ├── tests/
 │   ├── scanner/
 │   ├── generator/
 │   ├── translator/
-│   └── rewriter/
+│   ├── rewriter/
+│   └── cli/
 ├── auto-i18n.config.json      # Config générée (exemple)
 ├── package.json
 ├── tsconfig.json
-├── README.md
+├── DOCUMENTATION.md
+├── CHANGELOG.md
 └── .gitignore
 ```
 
@@ -224,19 +234,23 @@ auto-i18n/
 
 ```bash
 # Initialisation complète (commande principale)
-npx auto-i18n init
+npx next-auto-i18n init
 
 # Preview sans modifier les fichiers
-npx auto-i18n init --dry-run
+npx next-auto-i18n init --dry-run
 
 # Rescanner et mettre à jour les traductions
-npx auto-i18n sync
+npx next-auto-i18n sync
+
+# Extraire + traduire + générer un guide sans toucher au code source
+npx next-auto-i18n extract
+npx next-auto-i18n extract --out docs/i18n-guide.md
 
 # Ajouter une nouvelle langue
-npx auto-i18n add-locale ar
+npx next-auto-i18n add-locale ar
 
 # Voir les strings non traduites
-npx auto-i18n missing
+npx next-auto-i18n missing
 ```
 
 ---
@@ -269,18 +283,25 @@ npx auto-i18n missing
 
 ### v1.0 — MVP (objectif initial)
 - [x] Spécifications complètes
-- [ ] Structure repo + CLI de base
-- [ ] Scanner AST (JSX + attributs + template literals)
-- [ ] Générateur JSON (fichier source)
-- [ ] Client DeepL
-- [ ] Réécriture AST des composants
-- [ ] Injection config Next.js
-- [ ] Mode `--dry-run`
-- [ ] README complet
+- [x] Structure repo + CLI de base
+- [x] Scanner AST (JSX + attributs + template literals)
+- [x] Générateur JSON (fichier source)
+- [x] Client DeepL
+- [x] Réécriture AST des composants
+- [x] Injection config Next.js
+- [x] Mode `--dry-run`
+- [x] README complet
 
 ### v1.x — Améliorations
-- [ ] Commande `sync` (mise à jour)
-- [ ] Commande `missing` (strings manquantes)
+- [x] Commande `sync` (mise à jour incrémentale, merge stable des clés)
+- [x] Commande `missing` (strings manquantes par locale)
+- [x] Commande `extract` (traduction + guide sans réécriture du code source)
+- [x] Détection des strings module-scope (avertissement + guide)
+- [x] Sortie CLI détaillée (fichiers modifiés, compteurs, strings module-scope)
+- [x] Language Switcher flottant auto-injecté
+- [x] Structure `app/[locale]/` auto-créée
+- [x] Support Server Components et Client Components
+- [x] Correction entités HTML DeepL (`&apos;`, `&#39;`, etc.)
 - [ ] Mode `--watch`
 - [ ] Support Vite + React sans Next.js
 

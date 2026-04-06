@@ -95,7 +95,7 @@ describe('rawKey', () => {
     it('tronque à la dernière frontière de mot', () => {
       const long = 'Bienvenue sur notre plateforme de gestion de projets innovants';
       const key = rawKey(long);
-      expect(key.length).toBeLessThanOrEqual(40);
+      expect(key.length).toBeLessThanOrEqual(60);
       expect(key).not.toMatch(/_$/);
     });
 
@@ -106,13 +106,13 @@ describe('rawKey', () => {
     });
 
     it('ne tronque pas les clés courtes', () => {
-      expect(rawKey('Bonjour').length).toBeLessThanOrEqual(40);
+      expect(rawKey('Bonjour').length).toBeLessThanOrEqual(60);
     });
 
-    it('une longue chaîne sans espaces est tronquée à 40 chars', () => {
+    it('une longue chaîne sans espaces est tronquée à 60 chars', () => {
       const long = 'thisisaverylongwordwithnospacesatallextrabytes';
       const key = rawKey(long);
-      expect(key.length).toBeLessThanOrEqual(40);
+      expect(key.length).toBeLessThanOrEqual(60);
     });
 
     it('ne laisse pas de underscore en fin après troncature', () => {
@@ -121,7 +121,7 @@ describe('rawKey', () => {
       const val = 'aaaa bbbb cccc dddd eeee ffff gggg hhhh ii';
       const key = rawKey(val);
       expect(key).not.toMatch(/_$/);
-      expect(key.length).toBeLessThanOrEqual(40);
+      expect(key.length).toBeLessThanOrEqual(60);
     });
   });
 

@@ -11,7 +11,10 @@ import { scanProject } from '../scanner/index.js';
 import { generateMessages } from '../generator/index.js';
 import { translateMessages } from '../translator/index.js';
 import { rewriteFiles } from '../rewriter/index.js';
+import { findModuleScopeStrings } from '../rewriter/const-rewriter.js';
 import { injectAll } from '../injector/index.js';
+import { Project } from 'ts-morph';
+import { generateDoc, type FileDocEntry } from './doc-generator.js';
 
 const MAX_FILES_DISPLAY = 10;
 const MAX_REWRITE_DISPLAY = 15;
@@ -523,6 +526,172 @@ program
         logger.info(`${totalMissing} clé${totalMissing > 1 ? 's' : ''} manquante${totalMissing > 1 ? 's' : ''} au total`);
         logger.dim('Lancez "auto-i18n sync" pour les traduire.');
       }
+    } catch (err) {
+      logger.error(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+  });
+
+program
+  .command('extract')
+  .description("Extrait et traduit les strings — génère un guide d'intégration sans modifier les fichiers source")
+  .option('--locale <locales>', 'Langues cibles (séparées par des virgules)')
+  .option('--out <path>', 'Chemin du guide Markdown (défaut: i18n-guide.md)')
+  .action(async (options: { locale?: string; out?: string }) => {
+    const projectRoot = process.cwd();
+
+    try {
+      // 1. Configuration
+      logger.step('Configuration');
+      let config;
+      try {
+        config = await loadConfig(projectRoot);
+        loadEnv(projectRoot);
+        logger.success(`Configuration chargée (${config.sourceLocale} → ${config.targetLocales.join(', ')})`);
+      } catch {
+        const sourceLocale = await askSourceLocale();
+        const targetLocales = options.locale
+          ? options.locale.split(',').map(s => s.trim().toLowerCase()).filter(s => s !== sourceLocale)
+          : await askTargetLocales(sourceLocale);
+
+        if (targetLocales.length === 0) {
+          logger.error('Aucune langue cible valide');
+          process.exit(1);
+        }
+
+        loadEnv(projectRoot);
+        let apiKey = getApiKey('AUTO_I18N_DEEPL_KEY');
+        if (!apiKey) {
+          apiKey = await askApiKey();
+          await saveApiKeyToEnv(projectRoot, 'AUTO_I18N_DEEPL_KEY', apiKey);
+          logger.success('Clé API sauvegardée dans .env.local');
+        }
+
+        config = buildConfig(sourceLocale, targetLocales);
+      }
+
+      const apiKey = getApiKey(config.apiKeyEnv);
+      if (!apiKey) {
+        logger.error(`Clé API introuvable (${config.apiKeyEnv}). Ajoutez-la dans .env.local.`);
+        process.exit(1);
+      }
+
+      // 2. Scan
+      logger.step('Scan du projet');
+      const strings = await scanProject(projectRoot, { ignorePatterns: config.ignore });
+
+      if (strings.length === 0) {
+        logger.warn('Aucune string traduisible trouvée — arrêt');
+        return;
+      }
+
+      const scanEntries = groupByFile(strings);
+      const fileCount = scanEntries.length;
+      logger.success(`${strings.length} string${strings.length > 1 ? 's' : ''} trouvée${strings.length > 1 ? 's' : ''} dans ${fileCount} fichier${fileCount > 1 ? 's' : ''}`);
+      logFileList(scanEntries, projectRoot, n => `${n} string${n > 1 ? 's' : ''}`);
+
+      // 3. Charger messages existants pour merge stable
+      const sourcePath = join(resolve(config.messagesDir), `${config.sourceLocale}.json`);
+      let existingMessages: Record<string, string> = {};
+      try {
+        existingMessages = JSON.parse(await readFile(sourcePath, 'utf-8')) as Record<string, string>;
+        const existingCount = Object.keys(existingMessages).length;
+        logger.dim(`${existingCount} clé${existingCount > 1 ? 's' : ''} existante${existingCount > 1 ? 's' : ''} chargées`);
+      } catch {
+        // Pas encore de fichier source — génération complète
+      }
+
+      // 4. Génération des clés
+      logger.step('Génération des clés');
+      const genResult = await generateMessages(strings, {
+        sourceLocale: config.sourceLocale,
+        messagesDir: config.messagesDir,
+        existingMessages,
+      });
+      const keyCount = Object.keys(genResult.messages).length;
+      logger.success(`${keyCount} clé${keyCount > 1 ? 's' : ''} → ${relative(projectRoot, genResult.outputPath)}`);
+      if (genResult.newCount > 0) {
+        logger.dim(`Dont ${genResult.newCount} nouvelle${genResult.newCount > 1 ? 's' : ''}`);
+      }
+
+      // 5. Traduction
+      logger.step('Traduction via DeepL');
+      const transResult = await translateMessages({
+        sourceLocale: config.sourceLocale,
+        targetLocales: config.targetLocales,
+        messagesDir: config.messagesDir,
+        apiKey,
+      });
+      if (transResult.totalTranslated > 0) {
+        logger.success(`${transResult.totalTranslated} string${transResult.totalTranslated > 1 ? 's' : ''} traduite${transResult.totalTranslated > 1 ? 's' : ''}`);
+        for (const locale of config.targetLocales) {
+          logger.dim(`  ${join(config.messagesDir, `${locale}.json`)}`);
+        }
+      } else {
+        logger.success('Toutes les traductions sont à jour');
+      }
+      if (transResult.skipped.length > 0) {
+        logger.dim(`Déjà à jour : ${transResult.skipped.join(', ')}`);
+      }
+
+      // 6. Détection des strings module-scope (lecture seule via AST)
+      logger.step('Analyse du code source');
+      const tsProject = new Project({ skipAddingFilesFromTsConfig: true, skipFileDependencyResolution: true });
+
+      const stringsByFile = new Map<string, typeof strings>();
+      for (const s of strings) {
+        const list = stringsByFile.get(s.filePath) ?? [];
+        list.push(s);
+        stringsByFile.set(s.filePath, list);
+      }
+
+      const fileEntries: FileDocEntry[] = [];
+      let totalModuleScope = 0;
+
+      for (const [filePath, fileStrings] of stringsByFile) {
+        const sourceFile = tsProject.addSourceFileAtPath(filePath);
+        const moduleScopeMatches = findModuleScopeStrings(sourceFile, genResult.keyMap);
+        const moduleScopeValues = new Set(moduleScopeMatches.map(m => m.value));
+        totalModuleScope += moduleScopeValues.size;
+
+        fileEntries.push({
+          filePath,
+          relPath: relative(projectRoot, filePath),
+          strings: fileStrings,
+          moduleScopeValues,
+        });
+      }
+
+      if (totalModuleScope > 0) {
+        logger.warn(`${totalModuleScope} string${totalModuleScope > 1 ? 's' : ''} module-scope détectée${totalModuleScope > 1 ? 's' : ''} (action manuelle requise — voir guide)`);
+      } else {
+        logger.success('Aucune string module-scope détectée');
+      }
+
+      // 7. Génération du guide Markdown
+      logger.step('Génération du guide');
+      const outputPath = resolve(options.out ?? 'i18n-guide.md');
+      const date = new Date().toLocaleDateString('fr-FR', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+      });
+
+      await generateDoc({
+        projectRoot,
+        sourceLocale: config.sourceLocale,
+        targetLocales: config.targetLocales,
+        messagesDir: config.messagesDir,
+        keyMap: genResult.keyMap,
+        files: fileEntries,
+        outputPath,
+        date,
+      });
+
+      logger.success(`Guide généré : ${relative(projectRoot, outputPath)}`);
+      logger.blank();
+      logger.success('Extraction terminée — aucun fichier source modifié');
+      logger.dim('Consultez le guide pour intégrer les traductions manuellement.');
     } catch (err) {
       logger.error(err instanceof Error ? err.message : String(err));
       process.exit(1);
