@@ -51,6 +51,7 @@ Et en quelques secondes :
 - Genere `i18n/routing.ts` + `i18n/request.ts` (requis pour les Server Components)
 - Cree la structure `app/[locale]/` requise par le App Router next-intl
 - Injecte un **Language Switcher flottant** (personnalisable) pour changer de langue
+- Detecte les strings dans les `const` module-scope et vous guide pour les integrer manuellement
 
 ## Commandes
 
@@ -66,11 +67,23 @@ next-auto-i18n init --locale en,es,de  # langues cibles en ligne de commande
 
 ### `next-auto-i18n sync`
 
-Rescanne le projet et traduit les nouvelles strings (mode incrementiel).
+Rescanne le projet, integre les nouvelles strings et synchronise toutes les traductions (mode incrementiel — les cles existantes sont preservees).
 
 ```bash
 next-auto-i18n sync
 ```
+
+### `next-auto-i18n extract`
+
+Traduit toutes les strings et genere un **guide d'integration Markdown** — sans modifier aucun fichier source. Utile pour garder le controle sur la reecriture du code.
+
+```bash
+next-auto-i18n extract                          # guide genere dans i18n-guide.md
+next-auto-i18n extract --out docs/i18n-guide.md # chemin personnalise
+next-auto-i18n extract --locale en,es           # langues cibles (si pas de config)
+```
+
+Le guide genere inclut : exemples d'utilisation Client/Server Component, tableaux par fichier (ligne, type, cle, code a copier-coller), section dedicee aux strings module-scope.
 
 ### `next-auto-i18n add-locale <locale>`
 
@@ -133,9 +146,10 @@ Chaque string devient une cle i18n normalisee :
 
 ### 3. Traduction DeepL
 
-- Appel batch avec protection des placeholders (`{name}` -> `<x>name</x>`)
+- Appel batch avec protection des placeholders (`{name}` → `<x>name</x>`)
 - Mode incrementiel : seules les cles manquantes sont traduites
 - Compatible DeepL Free (500k chars/mois) et Pro
+- Restauration automatique des entites HTML (`&apos;`, `&#39;`, etc.)
 
 ### 4. Reecriture des composants
 
@@ -147,6 +161,24 @@ Chaque string devient une cle i18n normalisee :
 
 - Server Components : `await getTranslations()` (next-intl/server)
 - Client Components : `useTranslations()` (next-intl)
+- Les strings dans des `const` module-scope (hors composant) sont **detectees et signalees** avec le fichier + numero de ligne — elles sont traduites dans les JSON mais pas reecrites automatiquement (voir section suivante)
+
+### Strings module-scope
+
+Les `const` declarees au niveau module (hors fonction/composant) ne peuvent pas utiliser `t()` directement. next-auto-i18n les detecte, les traduit, et vous indique quoi faire :
+
+```tsx
+// ❌ avant — const module-scope, t() inaccessible ici
+const items = ['Accueil', 'A propos', 'Contact'];
+
+// ✅ apres — deplacez la const dans le composant
+export function Nav() {
+  const t = useTranslations();
+  const items = [t('accueil'), t('a_propos'), t('contact')];
+}
+```
+
+Utilisez `next-auto-i18n extract` pour obtenir un guide complet avec tous les cas a corriger.
 
 ### 5. Injection config Next.js
 
@@ -182,4 +214,4 @@ npm run dev -- init  # test local
 
 ## Licence
 
-MIT
+MIT — [Steven KOULO](https://github.com/stvekoulo)
