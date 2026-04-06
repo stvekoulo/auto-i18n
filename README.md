@@ -204,7 +204,7 @@ Un composant flottant est automatiquement genere dans `components/LanguageSwitch
 ## Developpement
 
 ```bash
-git clone https://github.com/stvekoulo/next-auto-i18n.git
+git clone https://github.com/stvekoulo/auto-i18n.git
 cd next-auto-i18n
 npm install
 npm test        # vitest
