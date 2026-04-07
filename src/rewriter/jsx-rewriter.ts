@@ -5,11 +5,6 @@ function getTemplateText(node: Node): string {
   return typeof compiler['text'] === 'string' ? compiler['text'] : '';
 }
 
-/**
- * Remplace les noeuds JsxText traduisibles par {t("clé")}.
- * Traite les noeuds en ordre inverse pour préserver les positions.
- * Retourne le nombre de remplacements effectués.
- */
 export function rewriteJsxText(
   sourceFile: SourceFile,
   keyMap: Map<string, string>,
@@ -62,10 +57,6 @@ export function rewriteNoSubstitutionTemplateLiterals(
   return count;
 }
 
-/**
- * Remplace les template literals dynamiques (`Salut ${name}`) par t("clé", { name }).
- * Ignore ceux déjà à l'intérieur d'un appel t(...).
- */
 export function rewriteTemplateExpressions(
   sourceFile: SourceFile,
   keyMap: Map<string, string>,
@@ -74,13 +65,11 @@ export function rewriteTemplateExpressions(
   let count = 0;
 
   for (const node of [...nodes].reverse()) {
-    // Ignore si déjà dans un appel t(...)
     const parent = node.getParent();
     if (parent && Node.isCallExpression(parent)) {
       if (/^t$|^translate$/.test(parent.getExpression().getText())) continue;
     }
 
-    // Reconstruit la valeur avec placeholders {varName} (même logique que le scanner)
     let reconstructed = getTemplateText(node.getHead());
     const variables: string[] = [];
 
@@ -106,10 +95,6 @@ export function rewriteTemplateExpressions(
   return count;
 }
 
-/**
- * Construit l'objet de paramètres pour t().
- * Variables simples : shorthand { name } ; expressions complexes : { "user.name": user.name }.
- */
 function buildParamsObject(variables: string[]): string {
   const pairs = variables.map(v => {
     if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(v)) return v;
@@ -118,7 +103,6 @@ function buildParamsObject(variables: string[]): string {
   return `{ ${pairs.join(', ')} }`;
 }
 
-/** Applique toutes les réécritures JSX. Retourne le nombre total de remplacements. */
 export function rewriteJsx(
   sourceFile: SourceFile,
   keyMap: Map<string, string>,

@@ -13,7 +13,6 @@ const DEEPL_PRO_API = 'https://api.deepl.com/v2/translate';
 
 export const BATCH_SIZE = 50;
 
-/** Les clés du plan gratuit se terminent par ":fx". */
 function getApiUrl(apiKey: string): string {
   return apiKey.trimEnd().endsWith(':fx') ? DEEPL_FREE_API : DEEPL_PRO_API;
 }

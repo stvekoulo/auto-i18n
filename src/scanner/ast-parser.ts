@@ -51,7 +51,6 @@ export function parseBabelFallback(filePath: string): BabelFile {
   });
 }
 
-/** Réinitialise le projet partagé */
 export function resetSharedProject(): void {
   _sharedProject = null;
 }

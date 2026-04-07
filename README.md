@@ -75,15 +75,29 @@ next-auto-i18n sync
 
 ### `next-auto-i18n extract`
 
-Traduit toutes les strings et genere un **guide d'integration Markdown** — sans modifier aucun fichier source. Utile pour garder le controle sur la reecriture du code.
+Traduit toutes les strings et genere un **guide d'integration Markdown** — sans modifier aucun fichier source.
 
 ```bash
-next-auto-i18n extract                          # guide genere dans i18n-guide.md
-next-auto-i18n extract --out docs/i18n-guide.md # chemin personnalise
-next-auto-i18n extract --locale en,es           # langues cibles (si pas de config)
+next-auto-i18n extract                           # guide genere dans i18n-guide.md
+next-auto-i18n extract --out docs/i18n-guide.md  # chemin personnalise
+next-auto-i18n extract --locale en,es            # langues cibles (si pas de config)
+next-auto-i18n extract --inject                  # configure aussi Next.js (next.config, middleware, routing...)
+next-auto-i18n extract --switcher                # injecte uniquement le Language Switcher
+next-auto-i18n extract --no-module-scope         # ignore les strings dans les const module-scope
 ```
 
 Le guide genere inclut : exemples d'utilisation Client/Server Component, tableaux par fichier (ligne, type, cle, code a copier-coller), section dedicee aux strings module-scope.
+
+### `next-auto-i18n extract sync`
+
+Rescanne le projet, integre les nouvelles strings et synchronise les traductions — **sans réécrire les fichiers source**. Meme merge stable que `sync`.
+
+```bash
+next-auto-i18n extract sync                  # rescan + mise a jour JSON + traduction
+next-auto-i18n extract sync --inject         # + configure Next.js apres synchronisation
+next-auto-i18n extract sync --switcher       # + injecte le Language Switcher
+next-auto-i18n extract sync --no-module-scope  # exclut les strings module-scope
+```
 
 ### `next-auto-i18n add-locale <locale>`
 

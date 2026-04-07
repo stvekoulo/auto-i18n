@@ -8,7 +8,6 @@ export interface LocaleStructureResult {
   movedFiles: string[];
 }
 
-/** Fichiers/dossiers qui restent à la racine de app/ et ne sont PAS déplacés. */
 const ROOT_ONLY = new Set([
   'layout.tsx', 'layout.jsx', 'layout.js',
   'globals.css', 'global.css',
@@ -21,10 +20,6 @@ const ROOT_ONLY = new Set([
   'not-found.tsx', 'not-found.jsx',
 ]);
 
-/**
- * Crée la structure `app/[locale]/`, déplace les pages
- * et génère un `[locale]/layout.tsx` avec le provider.
- */
 export async function injectLocaleStructure(
   projectRoot: string,
   locales: string[],
@@ -66,14 +61,11 @@ export async function injectLocaleStructure(
 
   await mkdir(localeDir, { recursive: true });
 
-  // Lister les entrées dans app/
   const entries = await readdir(appDir, { withFileTypes: true });
   const movedFiles: string[] = [];
 
   for (const entry of entries) {
-    // Ne pas déplacer le dossier [locale] lui-même
     if (entry.name === '[locale]') continue;
-    // Ne pas déplacer les fichiers qui doivent rester à la racine
     if (ROOT_ONLY.has(entry.name)) continue;
 
     const src = join(appDir, entry.name);
@@ -89,7 +81,6 @@ export async function injectLocaleStructure(
 
   await writeFile(localeLayoutPath, buildLocaleLayout(routingImportPath, switcherImportPath), 'utf-8');
 
-  // Simplifier le root layout : HTML shell pur
   await rewriteRootLayout(layoutPath);
 
   if (!options.silent) {
@@ -108,7 +99,6 @@ async function ensureLocaleLayoutHasSwitcher(
   try {
     content = await readFile(layoutPath, 'utf-8');
   } catch {
-    // Le layout n'existe pas du tout → le créer
     await writeFile(layoutPath, buildLocaleLayout(routingImportPath, switcherImportPath), 'utf-8');
     return true;
   }
@@ -199,7 +189,6 @@ async function rewriteRootLayout(layoutPath: string): Promise<void> {
     bodyTag = bodyTagMatch[0];
   }
 
-  // Construire le nouveau root layout
   const imports = [
     ...cssImports,
     ...fontImports,

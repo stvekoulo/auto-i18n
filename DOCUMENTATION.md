@@ -273,28 +273,37 @@ next-auto-i18n add-locale zh
 
 ### `next-auto-i18n extract`
 
-Scans the project, translates all strings, and generates a Markdown integration guide — **without modifying any source file**. Use this command when you want to keep full control over the integration process.
+Scans the project, translates all strings, and generates a Markdown integration guide — **without modifying any source file**.
 
 ```bash
-next-auto-i18n extract                         # Interactive (asks locale if no config)
-next-auto-i18n extract --locale en,es          # Skip locale prompt
-next-auto-i18n extract --out docs/i18n-guide.md  # Custom output path
+next-auto-i18n extract                          # Interactive (asks locale if no config)
+next-auto-i18n extract --locale en,es           # Skip locale prompt
+next-auto-i18n extract --out docs/i18n-guide.md # Custom output path
+next-auto-i18n extract --inject                 # Also configure Next.js after extraction
+next-auto-i18n extract --switcher               # Inject only the Language Switcher widget
+next-auto-i18n extract --no-module-scope        # Exclude module-scope const strings entirely
 ```
 
 | Flag | Description |
 |------|-------------|
-| `--locale <locales>` | Comma-separated target locales (used if no `auto-i18n.config.json` exists) |
+| `--locale <locales>` | Comma-separated target locales (used if no config file exists) |
 | `--out <path>` | Output path for the Markdown guide (default: `i18n-guide.md`) |
+| `--inject` | Runs the full Next.js setup after translation: `next.config`, `middleware.ts`, `i18n/routing.ts`, `i18n/request.ts`, `app/[locale]/` structure, Language Switcher |
+| `--switcher` | Injects only the floating Language Switcher component (without `--inject`) |
+| `--no-module-scope` | Excludes strings declared inside module-scope `const` from detection and translation |
 
 **What it does:**
 
 1. Scans your project for translatable strings (same AST engine as `init`)
-2. Generates/updates `messages/<sourceLocale>.json` with stable key merge
-3. Translates to all target locales via DeepL (incremental — only new strings)
-4. Detects module-scope strings that require manual integration
-5. Generates `i18n-guide.md` with full integration instructions
+2. *(if `--no-module-scope`)* Detects and filters out module-scope strings before key generation
+3. Generates/updates `messages/<sourceLocale>.json` with stable key merge
+4. Translates to all target locales via DeepL (incremental — only new strings)
+5. Detects module-scope strings that require manual integration (unless `--no-module-scope`)
+6. *(if `--inject`)* Configures the full Next.js i18n infrastructure
+7. *(if `--switcher`)* Injects the Language Switcher component
+8. Generates `i18n-guide.md` with full integration instructions
 
-**What it does NOT do:** modify any `.tsx`/`.ts`/`.jsx`/`.js` source file.
+**What it never does:** modify any `.tsx`/`.ts`/`.jsx`/`.js` source file.
 
 **Generated guide contents:**
 
@@ -302,38 +311,29 @@ next-auto-i18n extract --out docs/i18n-guide.md  # Custom output path
 - List of generated translation files
 - Usage examples (Client Component with `useTranslations`, Server Component with `getTranslations`)
 - Module-scope strings section with before/after code examples
-- Per-file string tables with line number, type, original text, key, and replacement code
+- Per-file tables: line number, type, original text, key, ready-to-paste replacement code
 - Complete key reference table
 
-**Example output:**
+---
 
+### `next-auto-i18n extract sync`
+
+Sub-command of `extract`. Rescans the project, integrates new strings, and synchronises translations — **without rewriting source files**. Uses the same stable key merge as `sync`.
+
+```bash
+next-auto-i18n extract sync                    # Rescan + update JSON + translate
+next-auto-i18n extract sync --inject           # + configure Next.js after sync
+next-auto-i18n extract sync --switcher         # + inject the Language Switcher
+next-auto-i18n extract sync --no-module-scope  # Exclude module-scope strings
 ```
-▸ Configuration
-  ✓ Configuration chargée (fr → en, es)
 
-▸ Scan du projet
-  ✓ 47 strings trouvées dans 12 fichiers
-    components/Hero.tsx                              8 strings
-    components/Navbar.tsx                            5 strings
-    ...
+| Flag | Description |
+|------|-------------|
+| `--inject` | Runs full Next.js setup after synchronisation |
+| `--switcher` | Injects only the Language Switcher component |
+| `--no-module-scope` | Excludes module-scope strings from detection and translation |
 
-▸ Génération des clés
-  ✓ 42 clés → ./messages/fr.json
-
-▸ Traduction via DeepL
-  ✓ 84 strings traduites
-    ./messages/en.json
-    ./messages/es.json
-
-▸ Analyse du code source
-  ⚠ 3 strings module-scope détectées (action manuelle requise — voir guide)
-
-▸ Génération du guide
-  ✓ Guide généré : i18n-guide.md
-
-  ✓ Extraction terminée — aucun fichier source modifié
-  Consultez le guide pour intégrer les traductions manuellement.
-```
+Requires an existing `auto-i18n.config.json` and `messages/<sourceLocale>.json` (run `init` or `extract` first).
 
 ---
 
@@ -953,6 +953,9 @@ The test suite covers all modules:
 - [x] `next-auto-i18n sync` — rescan and incremental update (stable key merge)
 - [x] `next-auto-i18n missing` — report untranslated keys
 - [x] `next-auto-i18n extract` — translate + generate guide without touching source
+- [x] `next-auto-i18n extract sync` — incremental sync without source rewrite
+- [x] `--inject` / `--switcher` options on `extract` and `extract sync`
+- [x] `--no-module-scope` option to exclude const module-scope strings
 - [x] Floating language switcher widget (auto-injected, customizable)
 - [x] Automatic `next-intl` dependency installation
 - [x] `app/[locale]/` structure auto-creation (required by next-intl App Router)

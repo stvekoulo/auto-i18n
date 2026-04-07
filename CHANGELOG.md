@@ -1,38 +1,40 @@
 # Changelog
 
-## [0.6.0] - 2026-04-06
+## [0.7.3] - 2026-04-07
 
 ### Added
 
-- **Commande `extract`** : nouvelle commande qui scanne le projet, génère les fichiers de traduction et produit un guide d'intégration Markdown (`i18n-guide.md`) — **sans modifier aucun fichier source**. Idéal pour les projets où la réécriture automatique est risquée ou non souhaitée.
-  - Option `--out <path>` : chemin personnalisé du guide généré (défaut : `i18n-guide.md`)
-  - Option `--locale <locales>` : langues cibles si aucune config n'existe
+- **Commande `extract`** : scanne le projet, génère les fichiers de traduction et produit un guide d'intégration Markdown (`i18n-guide.md`) — **sans modifier aucun fichier source**.
+  - `--out <path>` : chemin personnalisé du guide (défaut : `i18n-guide.md`)
+  - `--locale <locales>` : langues cibles si aucune config n'existe
+  - `--inject` : configure next.config, middleware.ts, i18n/routing.ts, i18n/request.ts et app/[locale]/ après extraction
+  - `--switcher` : injecte uniquement le Language Switcher flottant (sans `--inject`)
+  - `--no-module-scope` : exclut les strings dans les `const` module-scope de la détection et de la traduction
   - Fonctionne sans `auto-i18n.config.json` (prompts interactifs en fallback)
-  - Le guide inclut : résumé, liste des fichiers générés, exemples d'utilisation client/serveur, section dédiée aux strings module-scope, tableaux par fichier (ligne / type / clé / code à utiliser), référence complète des clés
+  - Le guide inclut : résumé, fichiers générés, exemples client/serveur, section module-scope, tableaux par fichier, référence des clés
 
-- **Détection des strings module-scope** : les strings dans des `const` déclarées en dehors d'un composant (niveau module) sont désormais détectées et signalées explicitement. Elles sont traduites dans les fichiers JSON mais le code source n'est pas réécrit automatiquement (la fonction `t()` n'est accessible qu'à l'intérieur d'un composant).
-  - Avertissement en CLI avec fichier + numéro de ligne + valeur + clé
-  - Guidance : « Déplacez ces const dans vos composants pour utiliser `t("clé")` »
-  - Section dédiée dans le guide Markdown généré par `extract`
+- **Commande `extract sync`** : sous-commande de `extract` — rescanne le projet, intègre les nouvelles strings et synchronise les traductions **sans réécrire les fichiers source**. Même merge stable que `sync`.
+  - `--inject` : configure Next.js après la synchronisation
+  - `--switcher` : injecte uniquement le Language Switcher
+  - `--no-module-scope` : exclut les strings module-scope du scan et de la traduction
 
-- **Sortie CLI détaillée** : toutes les commandes affichent maintenant des informations enrichies.
-  - `init` / `sync` : liste des fichiers scannés avec nombre de strings, détail par fichier modifié (remplacements effectués), compteur de fichiers sans modification nécessaire
-  - `sync` : affichage du nombre de clés existantes au départ, distinction nouvelles clés vs clés déjà à jour
-  - `add-locale` : affichage du chemin du fichier généré
-  - `missing` : total de clés manquantes, invitation à lancer `sync`
+- **Détection des strings module-scope** : les strings dans des `const` à niveau module sont détectées, traduites dans le JSON, et signalées en CLI (fichier + ligne + clé). Le code source n'est pas réécrit (la fonction `t()` n'est accessible qu'à l'intérieur d'un composant).
+
+- **Sortie CLI détaillée** : toutes les commandes affichent des informations enrichies (fichiers scannés, remplacements par fichier, clés nouvelles vs existantes, strings module-scope).
 
 ### Fixed
 
-- **Entités HTML DeepL** : les apostrophes et guillemets retournés par DeepL en mode XML (`&apos;`, `&#39;`, `&#x27;`, `&quot;`, `&#34;`) sont maintenant correctement restaurés. Corrige l'affichage `d&apos;exception` au lieu de `d'exception`.
-- **Commande `sync` — stabilité des clés** : `sync` régénérait toutes les clés depuis zéro à chaque exécution, causant des collisions et des traductions cassées. Désormais les clés existantes sont préservées (merge stable via `existingMessages`) et seules les nouvelles strings reçoivent de nouvelles clés.
-- **Commande `sync` — traduction toujours exécutée** : après `init`, le scanner trouve 0 strings (toutes déjà sous `t("clé")`). L'ancienne `sync` s'arrêtait là sans synchroniser les traductions. Maintenant l'étape de traduction s'exécute toujours, indépendamment du scan.
-- **Tests `key-builder`** : la limite de troncature des clés était documentée à 40 dans les tests mais l'implémentation utilisait 60 — les tests sont mis à jour.
+- **Entités HTML DeepL** : `&apos;`, `&#39;`, `&#x27;`, `&quot;`, `&#34;` sont maintenant correctement restaurés — corrige l'affichage `d&apos;exception` au lieu de `d'exception`.
+- **`sync` — stabilité des clés** : les clés existantes sont désormais préservées via `existingMessages` (merge stable). Plus de régénération depuis zéro.
+- **`sync` — traduction toujours exécutée** : la synchronisation des traductions s'exécute même si le scan ne trouve aucune nouvelle string.
+- **`extract` — clé API perdue** : lors du premier lancement sans config, la clé saisie interactivement était ignorée lors du check suivant — corrigé en la transmettant directement.
+- **Tests `key-builder`** : limite de troncature corrigée de 40 à 60 dans les tests (correspondant à l'implémentation réelle).
 
 ### Changed
 
-- `generateMessages` accepte désormais `existingMessages?: Record<string, string>` pour le merge incrémental stable.
-- `GenerateResult` expose `newCount: number` — nombre de nouvelles clés ajoutées (utile pour les logs CLI).
-- `RewriteResult` expose `moduleScopeStrings: UnrewrittenString[]` et `details: FileRewriteDetail[]` — permet un reporting précis par fichier.
+- `generateMessages` accepte `existingMessages?: Record<string, string>` pour le merge incrémental stable.
+- `GenerateResult` expose `newCount: number`.
+- `RewriteResult` expose `moduleScopeStrings: UnrewrittenString[]` et `details: FileRewriteDetail[]`.
 - `src/cli/doc-generator.ts` : nouveau module dédié à la génération du guide Markdown.
 
 ## [0.3.0] - 2026-03-26

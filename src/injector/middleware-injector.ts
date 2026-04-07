@@ -22,10 +22,6 @@ export const config = {
 `;
 }
 
-/**
- * Détecte la version majeure de Next.js installée dans le projet.
- * Retourne null si non trouvée.
- */
 async function detectNextMajorVersion(projectRoot: string): Promise<number | null> {
   try {
     const pkgPath = join(projectRoot, 'node_modules', 'next', 'package.json');
@@ -45,7 +41,6 @@ export async function injectMiddleware(
   const nextVersion = await detectNextMajorVersion(projectRoot);
   const useProxy = nextVersion !== null && nextVersion >= 16;
 
-  // Détecter si le projet utilise src/
   const layoutPath = await findLayoutFile(projectRoot);
   const useSrc = layoutPath ? layoutPath.includes(join('src', 'app')) : false;
   const baseDir = useSrc ? join(projectRoot, 'src') : projectRoot;
@@ -54,7 +49,6 @@ export async function injectMiddleware(
   const content = buildMiddlewareContent(useSrc);
   const filePath = join(baseDir, fileName);
 
-  // Vérifier aussi l'ancien nom si on passe à proxy
   const altFileName = useProxy ? 'middleware.ts' : 'proxy.ts';
 
   // Vérifier les deux emplacements possibles (src/ et root)

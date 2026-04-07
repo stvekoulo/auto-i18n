@@ -6,7 +6,7 @@ export interface FileDocEntry {
   /** Chemin relatif depuis projectRoot (pour l'affichage). */
   relPath: string;
   strings: ExtractedString[];
-  /** Valeurs des strings au module-scope (non réécrivables automatiquement). */
+  /** Valeurs des strings au module-scope. */
   moduleScopeValues: Set<string>;
 }
 
@@ -14,7 +14,6 @@ export interface DocOptions {
   projectRoot: string;
   sourceLocale: string;
   targetLocales: string[];
-  /** Chemin relatif du dossier messages (pour l'affichage). */
   messagesDir: string;
   keyMap: Map<string, string>;
   files: FileDocEntry[];
@@ -22,7 +21,6 @@ export interface DocOptions {
   date: string;
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
 
 function escapeCell(s: string): string {
   return s.replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ');
@@ -53,8 +51,6 @@ function replacementCode(s: ExtractedString, key: string): string {
   return `{t("${key}")}`;
 }
 
-// ── Markdown builder ───────────────────────────────────────────────────────
-
 export function buildDoc(options: DocOptions): string {
   const { sourceLocale, targetLocales, messagesDir, keyMap, files, date } = options;
 
@@ -64,13 +60,11 @@ export function buildDoc(options: DocOptions): string {
 
   const L: string[] = [];
 
-  // ── En-tête ──────────────────────────────────────────────────────────────
   L.push('# Guide d\'intégration i18n — next-auto-i18n');
   L.push('');
   L.push(`> Généré le **${date}**&nbsp;&nbsp;·&nbsp;&nbsp;✅ Aucun fichier source modifié.`);
   L.push('');
 
-  // ── Résumé ───────────────────────────────────────────────────────────────
   L.push('## Résumé');
   L.push('');
   L.push(`| | |`);
@@ -83,7 +77,6 @@ export function buildDoc(options: DocOptions): string {
   }
   L.push('');
 
-  // ── Fichiers générés ─────────────────────────────────────────────────────
   L.push('## Fichiers générés');
   L.push('');
   L.push('| Fichier | Description |');
@@ -94,7 +87,6 @@ export function buildDoc(options: DocOptions): string {
   }
   L.push('');
 
-  // ── Guide d'utilisation ───────────────────────────────────────────────────
   L.push('## Comment utiliser les traductions');
   L.push('');
   L.push('### Composant Client (`\'use client\'`)');
@@ -123,7 +115,6 @@ export function buildDoc(options: DocOptions): string {
   L.push('> 💡 Lancez `npx next-auto-i18n init` pour configurer automatiquement le routing, le middleware et les layouts.');
   L.push('');
 
-  // ── Section module-scope ─────────────────────────────────────────────────
   if (moduleScopeTotal > 0) {
     L.push('---');
     L.push('');
@@ -153,7 +144,6 @@ export function buildDoc(options: DocOptions): string {
     L.push('');
   }
 
-  // ── Strings par fichier ───────────────────────────────────────────────────
   L.push('---');
   L.push('');
   L.push('## Strings par fichier');
@@ -175,7 +165,6 @@ export function buildDoc(options: DocOptions): string {
       L.push('');
     }
 
-    // Strings auto-remplaçables
     if (autoStrings.length > 0) {
       if (hasModuleScope) L.push('**Remplacements automatiques :**');
       L.push('');
@@ -190,7 +179,6 @@ export function buildDoc(options: DocOptions): string {
       L.push('');
     }
 
-    // Strings module-scope (action manuelle)
     if (manualStrings.length > 0) {
       L.push('**Action manuelle requise (module-scope) :**');
       L.push('');
@@ -210,7 +198,6 @@ export function buildDoc(options: DocOptions): string {
     L.push('');
   }
 
-  // ── Toutes les clés ───────────────────────────────────────────────────────
   L.push('## Référence complète des clés');
   L.push('');
   L.push(`Toutes les clés générées dans \`${messagesDir}/${sourceLocale}.json\` :`);

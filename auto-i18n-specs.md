@@ -245,6 +245,13 @@ npx next-auto-i18n sync
 # Extraire + traduire + générer un guide sans toucher au code source
 npx next-auto-i18n extract
 npx next-auto-i18n extract --out docs/i18n-guide.md
+npx next-auto-i18n extract --inject         # configure aussi Next.js
+npx next-auto-i18n extract --switcher       # injecte uniquement le Language Switcher
+npx next-auto-i18n extract --no-module-scope  # ignore les strings module-scope
+
+# Synchroniser les traductions sans réécrire les fichiers source
+npx next-auto-i18n extract sync
+npx next-auto-i18n extract sync --inject
 
 # Ajouter une nouvelle langue
 npx next-auto-i18n add-locale ar
@@ -296,6 +303,8 @@ npx next-auto-i18n missing
 - [x] Commande `sync` (mise à jour incrémentale, merge stable des clés)
 - [x] Commande `missing` (strings manquantes par locale)
 - [x] Commande `extract` (traduction + guide sans réécriture du code source)
+- [x] Commande `extract sync` (sync incrémental sans réécriture)
+- [x] Options `--inject`, `--switcher`, `--no-module-scope` sur `extract` et `extract sync`
 - [x] Détection des strings module-scope (avertissement + guide)
 - [x] Sortie CLI détaillée (fichiers modifiés, compteurs, strings module-scope)
 - [x] Language Switcher flottant auto-injecté

@@ -5,7 +5,6 @@ function getTemplateText(node: Node): string {
   return typeof compiler['text'] === 'string' ? compiler['text'] : '';
 }
 
-/** Type de string trouvée dans le code source. */
 export type StringType =
   | 'jsx-text'
   | 'jsx-attribute'
@@ -41,10 +40,6 @@ const NON_TRANSLATABLE_ATTRIBUTES = new Set([
   'action', 'method', 'encType', 'target', 'rel', 'role',
 ]);
 
-/**
- * Vérifie si un nœud est à l'intérieur d'un attribut JSX non traduisible
- * (className, style, id, etc.).
- */
 function isInsideNonTranslatableAttribute(node: Node): boolean {
   let current = node.getParent();
   while (current) {
@@ -58,10 +53,6 @@ function isInsideNonTranslatableAttribute(node: Node): boolean {
   return false;
 }
 
-/**
- * Vérifie si un nœud est le premier argument d'un appel à `t(...)`.
- * Permet d'ignorer les strings déjà traduites.
- */
 function isFirstArgOfTCall(node: Node): boolean {
   const parent = node.getParent();
   if (!parent || !Node.isCallExpression(parent)) return false;
@@ -71,7 +62,6 @@ function isFirstArgOfTCall(node: Node): boolean {
   return args.length > 0 && args[0] === node;
 }
 
-/** Noms de propriétés dont les valeurs sont techniques (pas de traduction). */
 const TECHNICAL_PROPERTY_NAMES = new Set([
   'key', 'id', 'className', 'class', 'style', 'type',
   'href', 'src', 'srcSet', 'action', 'method', 'target', 'rel',
@@ -86,18 +76,13 @@ const TECHNICAL_PROPERTY_NAMES = new Set([
   'padding', 'margin', 'gap', 'display', 'position', 'overflow',
 ]);
 
-/**
- * Vérifie si un StringLiteral est dans un contexte non traduisible :
- * import, export, type, enum, new Error(), console.*, etc.
- */
+
 function isInNonExtractableContext(node: Node): boolean {
   const parent = node.getParent();
   if (!parent) return true;
 
-  // Propriété name d'un objet (clé, pas valeur)
   if (Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return true;
 
-  // Valeur d'une propriété technique (icon, type, className, etc.)
   if (Node.isPropertyAssignment(parent)) {
     const propName = parent.getName();
     if (TECHNICAL_PROPERTY_NAMES.has(propName)) return true;
@@ -107,10 +92,8 @@ function isInNonExtractableContext(node: Node): boolean {
 
   if (parent.getKind() === SyntaxKind.BindingElement) return true;
 
-  // new Error(), new TypeError(), etc.
   if (Node.isNewExpression(parent)) return true;
 
-  // Appels à des fonctions techniques ou CSS utilities
   if (Node.isCallExpression(parent)) {
     const callee = parent.getExpression().getText();
     if (/^(console\.\w+|require|Error|JSON\.\w+|parseInt|parseFloat|fetch|addEventListener|removeEventListener)$/.test(callee)) return true;
@@ -118,7 +101,6 @@ function isInNonExtractableContext(node: Node): boolean {
     if (/^(cva|cn|clsx|twMerge|classNames|classnames|css|styled|tv)$/.test(callee)) return true;
   }
 
-  // Remonter l'arbre pour les contextes structurels
   let current: Node | undefined = parent;
   while (current) {
     if (Node.isImportDeclaration(current) || Node.isExportDeclaration(current)) return true;
@@ -126,7 +108,6 @@ function isInNonExtractableContext(node: Node): boolean {
     if (Node.isEnumDeclaration(current)) return true;
     // JSX attribute — handled separately by attribute extractor
     if (Node.isJsxAttribute(current)) return true;
-    // Remonter les appels cva/cn imbriqués
     if (Node.isCallExpression(current)) {
       const callee = current.getExpression().getText();
       if (/^(cva|cn|clsx|twMerge|classNames|classnames|css|styled|tv)$/.test(callee)) return true;

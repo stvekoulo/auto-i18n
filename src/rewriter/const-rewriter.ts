@@ -36,9 +36,6 @@ function hasEnclosingFunction(node: Node): boolean {
   return false;
 }
 
-/**
- * Vérifie si un StringLiteral est dans un contexte non réécrivable.
- */
 function isNonRewritableContext(node: Node): boolean {
   const parent = node.getParent();
   if (!parent) return true;
@@ -47,7 +44,6 @@ function isNonRewritableContext(node: Node): boolean {
 
   if (Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return true;
 
-  // Valeur d'une propriété technique
   if (Node.isPropertyAssignment(parent)) {
     const propName = parent.getName();
     if (TECHNICAL_PROPERTY_NAMES.has(propName)) return true;
@@ -60,7 +56,6 @@ function isNonRewritableContext(node: Node): boolean {
   // new Error(), etc.
   if (Node.isNewExpression(parent)) return true;
 
-  // Appels à des fonctions techniques ou CSS utilities
   if (Node.isCallExpression(parent)) {
     const callee = parent.getExpression().getText();
     if (/^(console\.\w+|require|Error|JSON\.\w+|parseInt|parseFloat|fetch|addEventListener|removeEventListener)$/.test(callee)) return true;
@@ -75,7 +70,6 @@ function isNonRewritableContext(node: Node): boolean {
     if (Node.isTypeAliasDeclaration(current) || Node.isInterfaceDeclaration(current)) return true;
     if (Node.isEnumDeclaration(current)) return true;
     if (Node.isJsxAttribute(current)) return true;
-    // Remonter les appels cva/cn imbriqués
     if (Node.isCallExpression(current)) {
       const callee = current.getExpression().getText();
       if (/^(cva|cn|clsx|twMerge|classNames|classnames|css|styled|tv)$/.test(callee)) return true;
@@ -101,7 +95,6 @@ export function findModuleScopeStrings(
   const results: ModuleScopeString[] = [];
 
   for (const node of nodes) {
-    // Seules les strings module-scope nous intéressent
     if (hasEnclosingFunction(node)) continue;
 
     const parent = node.getParent();
@@ -115,7 +108,6 @@ export function findModuleScopeStrings(
       if (/^(console\.\w+|require|Error|JSON\.\w+|parseInt|parseFloat|fetch|cva|cn|clsx|twMerge|classNames|classnames|css|styled|tv|t|translate)$/.test(callee)) continue;
     }
 
-    // Exclure les contextes structurels (imports, types, enums)
     let skip = false;
     let current: Node | undefined = parent;
     while (current) {

@@ -12,7 +12,7 @@ import { generateMessages } from '../generator/index.js';
 import { translateMessages } from '../translator/index.js';
 import { rewriteFiles } from '../rewriter/index.js';
 import { findModuleScopeStrings } from '../rewriter/const-rewriter.js';
-import { injectAll } from '../injector/index.js';
+import { injectAll, injectLanguageSwitcher, type InjectAllResult } from '../injector/index.js';
 import { Project } from 'ts-morph';
 import { generateDoc, type FileDocEntry } from './doc-generator.js';
 
@@ -43,12 +43,57 @@ function groupByFile(strings: Array<{ filePath: string }>): Array<[string, numbe
   return [...map.entries()];
 }
 
+/**
+ * Détecte via ts-morph quelles valeurs de strings se trouvent au module-scope.
+ * Utilise une keyMap temporaire value→value pour éviter une dépendance sur generateMessages.
+ */
+function detectModuleScopeValues(
+  stringsByFile: Map<string, Array<{ value: string }>>,
+): Set<string> {
+  const tsProject = new Project({ skipAddingFilesFromTsConfig: true, skipFileDependencyResolution: true });
+  const moduleScopeSet = new Set<string>();
+  for (const [filePath, fileStrings] of stringsByFile) {
+    const detectionMap = new Map(fileStrings.map(s => [s.value, s.value]));
+    const sourceFile = tsProject.addSourceFileAtPath(filePath);
+    for (const m of findModuleScopeStrings(sourceFile, detectionMap)) {
+      moduleScopeSet.add(m.value);
+    }
+  }
+  return moduleScopeSet;
+}
+
+/** Logue le résultat d'un injectAll de manière uniforme. */
+function logInjectResult(injResult: InjectAllResult): void {
+  const ok  = (msg: string) => logger.success(msg);
+  const warn = (msg: string) => logger.warn(msg);
+
+  if (injResult.config.ok)         ok('next.config configuré');
+  else if (injResult.config.error) warn(`next.config — ${injResult.config.error}`);
+
+  if (injResult.middleware.ok) {
+    if (injResult.middleware.warning) warn(injResult.middleware.warning);
+    else                              ok('middleware.ts créé');
+  } else if (injResult.middleware.error) warn(`middleware.ts — ${injResult.middleware.error}`);
+
+  if (injResult.routing.ok)         ok('i18n/routing.ts créé');
+  else if (injResult.routing.error) warn(`i18n/routing.ts — ${injResult.routing.error}`);
+
+  if (injResult.request.ok)         ok('i18n/request.ts créé');
+  else if (injResult.request.error) warn(`i18n/request.ts — ${injResult.request.error}`);
+
+  if (injResult.switcher.ok)         ok('LanguageSwitcher créé');
+  else if (injResult.switcher.error) warn(`LanguageSwitcher — ${injResult.switcher.error}`);
+
+  if (injResult.localeStructure.ok)         ok(`app/[locale]/ structuré`);
+  else if (injResult.localeStructure.error) warn(`app/[locale]/ — ${injResult.localeStructure.error}`);
+}
+
 const program = new Command();
 
 program
   .name('next-auto-i18n')
   .description("Automatise l'internationalisation d'un projet React / Next.js")
-  .version('0.1.0');
+  .version('0.7.3');
 
 program
   .command('init')
@@ -532,21 +577,26 @@ program
     }
   });
 
-program
+const extractCmd = program
   .command('extract')
   .description("Extrait et traduit les strings — génère un guide d'intégration sans modifier les fichiers source")
   .option('--locale <locales>', 'Langues cibles (séparées par des virgules)')
   .option('--out <path>', 'Chemin du guide Markdown (défaut: i18n-guide.md)')
-  .action(async (options: { locale?: string; out?: string }) => {
+  .option('--inject', 'Configure next.config, middleware.ts, i18n/routing.ts, i18n/request.ts et app/[locale]/')
+  .option('--switcher', 'Injecte uniquement le Language Switcher flottant (sans --inject)')
+  .option('--no-module-scope', 'Exclut les strings dans les const module-scope de la détection et de la traduction')
+  .action(async (options: { locale?: string; out?: string; inject?: boolean; switcher?: boolean; moduleScope: boolean }) => {
     const projectRoot = process.cwd();
 
     try {
       // 1. Configuration
       logger.step('Configuration');
       let config;
+      let apiKey: string | undefined;
       try {
         config = await loadConfig(projectRoot);
         loadEnv(projectRoot);
+        apiKey = getApiKey(config.apiKeyEnv);
         logger.success(`Configuration chargée (${config.sourceLocale} → ${config.targetLocales.join(', ')})`);
       } catch {
         const sourceLocale = await askSourceLocale();
@@ -560,7 +610,7 @@ program
         }
 
         loadEnv(projectRoot);
-        let apiKey = getApiKey('AUTO_I18N_DEEPL_KEY');
+        apiKey = getApiKey('AUTO_I18N_DEEPL_KEY');
         if (!apiKey) {
           apiKey = await askApiKey();
           await saveApiKeyToEnv(projectRoot, 'AUTO_I18N_DEEPL_KEY', apiKey);
@@ -570,19 +620,39 @@ program
         config = buildConfig(sourceLocale, targetLocales);
       }
 
-      const apiKey = getApiKey(config.apiKeyEnv);
       if (!apiKey) {
-        logger.error(`Clé API introuvable (${config.apiKeyEnv}). Ajoutez-la dans .env.local.`);
+        logger.error(`Clé API introuvable (${config!.apiKeyEnv}). Ajoutez-la dans .env.local.`);
         process.exit(1);
       }
 
       // 2. Scan
       logger.step('Scan du projet');
-      const strings = await scanProject(projectRoot, { ignorePatterns: config.ignore });
+      const allStrings = await scanProject(projectRoot, { ignorePatterns: config.ignore });
 
-      if (strings.length === 0) {
+      if (allStrings.length === 0) {
         logger.warn('Aucune string traduisible trouvée — arrêt');
         return;
+      }
+
+      // Grouper par fichier (utile pour le filtrage module-scope et le guide)
+      const stringsByFile = new Map<string, typeof allStrings>();
+      for (const s of allStrings) {
+        const list = stringsByFile.get(s.filePath) ?? [];
+        list.push(s);
+        stringsByFile.set(s.filePath, list);
+      }
+
+      // Filtrage module-scope si --no-module-scope
+      let excludedModuleScope = 0;
+      let strings = allStrings;
+      if (!options.moduleScope) {
+        logger.step('Détection des strings module-scope (à exclure)');
+        const moduleScopeSet = detectModuleScopeValues(stringsByFile);
+        excludedModuleScope = moduleScopeSet.size;
+        strings = allStrings.filter(s => !moduleScopeSet.has(s.value));
+        if (excludedModuleScope > 0) {
+          logger.dim(`${excludedModuleScope} string${excludedModuleScope > 1 ? 's' : ''} module-scope exclue${excludedModuleScope > 1 ? 's' : ''} de la détection`);
+        }
       }
 
       const scanEntries = groupByFile(strings);
@@ -590,7 +660,7 @@ program
       logger.success(`${strings.length} string${strings.length > 1 ? 's' : ''} trouvée${strings.length > 1 ? 's' : ''} dans ${fileCount} fichier${fileCount > 1 ? 's' : ''}`);
       logFileList(scanEntries, projectRoot, n => `${n} string${n > 1 ? 's' : ''}`);
 
-      // 3. Charger messages existants pour merge stable
+      // 3. Messages existants
       const sourcePath = join(resolve(config.messagesDir), `${config.sourceLocale}.json`);
       let existingMessages: Record<string, string> = {};
       try {
@@ -634,41 +704,61 @@ program
         logger.dim(`Déjà à jour : ${transResult.skipped.join(', ')}`);
       }
 
-      // 6. Détection des strings module-scope (lecture seule via AST)
+      // 6. Détection des strings module-scope pour le guide (si non exclues)
       logger.step('Analyse du code source');
       const tsProject = new Project({ skipAddingFilesFromTsConfig: true, skipFileDependencyResolution: true });
-
-      const stringsByFile = new Map<string, typeof strings>();
-      for (const s of strings) {
-        const list = stringsByFile.get(s.filePath) ?? [];
-        list.push(s);
-        stringsByFile.set(s.filePath, list);
-      }
-
       const fileEntries: FileDocEntry[] = [];
       let totalModuleScope = 0;
 
       for (const [filePath, fileStrings] of stringsByFile) {
+        const relevantStrings = fileStrings.filter(s => strings.includes(s));
+        if (relevantStrings.length === 0) continue;
         const sourceFile = tsProject.addSourceFileAtPath(filePath);
-        const moduleScopeMatches = findModuleScopeStrings(sourceFile, genResult.keyMap);
+        const moduleScopeMatches = options.moduleScope
+          ? findModuleScopeStrings(sourceFile, genResult.keyMap)
+          : [];
         const moduleScopeValues = new Set(moduleScopeMatches.map(m => m.value));
         totalModuleScope += moduleScopeValues.size;
-
         fileEntries.push({
           filePath,
           relPath: relative(projectRoot, filePath),
-          strings: fileStrings,
+          strings: relevantStrings,
           moduleScopeValues,
         });
       }
 
-      if (totalModuleScope > 0) {
-        logger.warn(`${totalModuleScope} string${totalModuleScope > 1 ? 's' : ''} module-scope détectée${totalModuleScope > 1 ? 's' : ''} (action manuelle requise — voir guide)`);
-      } else {
-        logger.success('Aucune string module-scope détectée');
+      if (options.moduleScope) {
+        if (totalModuleScope > 0) {
+          logger.warn(`${totalModuleScope} string${totalModuleScope > 1 ? 's' : ''} module-scope détectée${totalModuleScope > 1 ? 's' : ''} (action manuelle requise — voir guide)`);
+        } else {
+          logger.success('Aucune string module-scope détectée');
+        }
+      } else if (excludedModuleScope > 0) {
+        logger.dim(`${excludedModuleScope} string${excludedModuleScope > 1 ? 's' : ''} module-scope ignorée${excludedModuleScope > 1 ? 's' : ''} (--no-module-scope)`);
       }
 
-      // 7. Génération du guide Markdown
+      // 7. Configuration Next.js optionnelle
+      if (options.inject) {
+        logger.step('Configuration Next.js');
+        const injResult = await injectAll({
+          projectRoot,
+          locales: [config.sourceLocale, ...config.targetLocales],
+          defaultLocale: config.sourceLocale,
+          silent: true,
+        });
+        logInjectResult(injResult);
+      } else if (options.switcher) {
+        logger.step('Injection du Language Switcher');
+        try {
+          const r = await injectLanguageSwitcher(projectRoot, { silent: true });
+          if (r.skipped) logger.dim('LanguageSwitcher — déjà présent');
+          else           logger.success('LanguageSwitcher créé');
+        } catch (e) {
+          logger.warn(`LanguageSwitcher — ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      // 8. Génération du guide Markdown
       logger.step('Génération du guide');
       const outputPath = resolve(options.out ?? 'i18n-guide.md');
       const date = new Date().toLocaleDateString('fr-FR', {
@@ -692,6 +782,170 @@ program
       logger.blank();
       logger.success('Extraction terminée — aucun fichier source modifié');
       logger.dim('Consultez le guide pour intégrer les traductions manuellement.');
+    } catch (err) {
+      logger.error(err instanceof Error ? err.message : String(err));
+      process.exit(1);
+    }
+  });
+
+extractCmd
+  .command('sync')
+  .description('Rescanne le projet, intègre les nouvelles strings et synchronise les traductions — sans modifier les fichiers source')
+  .option('--inject', 'Configure next.config, middleware.ts, i18n/routing.ts, i18n/request.ts et app/[locale]/')
+  .option('--switcher', 'Injecte uniquement le Language Switcher flottant (sans --inject)')
+  .option('--no-module-scope', 'Exclut les strings dans les const module-scope de la détection et de la traduction')
+  .action(async (options: { inject?: boolean; switcher?: boolean; moduleScope: boolean }) => {
+    const projectRoot = process.cwd();
+
+    try {
+      const config = await loadConfig(projectRoot);
+      loadEnv(projectRoot);
+      const apiKey = getApiKey(config.apiKeyEnv);
+
+      if (!apiKey) {
+        logger.error(`Clé API introuvable (${config.apiKeyEnv}). Lancez "next-auto-i18n init" d'abord.`);
+        process.exit(1);
+      }
+
+      const sourcePath = join(resolve(config.messagesDir), `${config.sourceLocale}.json`);
+
+      try {
+        await access(sourcePath);
+      } catch {
+        logger.error(`Fichier source introuvable : ${relative(projectRoot, sourcePath)}`);
+        logger.dim('Lancez "next-auto-i18n init" ou "next-auto-i18n extract" d\'abord.');
+        process.exit(1);
+      }
+
+      let existingMessages: Record<string, string> = {};
+      try {
+        existingMessages = JSON.parse(await readFile(sourcePath, 'utf-8')) as Record<string, string>;
+      } catch {
+        logger.warn(`Impossible de lire ${relative(projectRoot, sourcePath)} — régénération complète`);
+      }
+
+      const existingCount = Object.keys(existingMessages).length;
+      logger.info(`${existingCount} clé${existingCount > 1 ? 's' : ''} existante${existingCount > 1 ? 's' : ''} dans ${config.sourceLocale}.json`);
+
+      // 1. Scan
+      logger.step('Scan du projet');
+      const allStrings = await scanProject(projectRoot, { ignorePatterns: config.ignore });
+
+      if (allStrings.length > 0) {
+        // Grouper par fichier pour la détection module-scope
+        const stringsByFile = new Map<string, typeof allStrings>();
+        for (const s of allStrings) {
+          const list = stringsByFile.get(s.filePath) ?? [];
+          list.push(s);
+          stringsByFile.set(s.filePath, list);
+        }
+
+        // Filtrage module-scope si --no-module-scope
+        let excludedModuleScope = 0;
+        let strings = allStrings;
+        if (!options.moduleScope) {
+          const moduleScopeSet = detectModuleScopeValues(stringsByFile);
+          excludedModuleScope = moduleScopeSet.size;
+          strings = allStrings.filter(s => !moduleScopeSet.has(s.value));
+          if (excludedModuleScope > 0) {
+            logger.dim(`${excludedModuleScope} string${excludedModuleScope > 1 ? 's' : ''} module-scope exclue${excludedModuleScope > 1 ? 's' : ''} (--no-module-scope)`);
+          }
+        }
+
+        const scanEntries = groupByFile(strings);
+        const fileCount = scanEntries.length;
+        logger.success(`${strings.length} string${strings.length > 1 ? 's' : ''} trouvée${strings.length > 1 ? 's' : ''} dans ${fileCount} fichier${fileCount > 1 ? 's' : ''}`);
+        logFileList(scanEntries, projectRoot, n => `${n} string${n > 1 ? 's' : ''}`);
+        logger.dim('Mode extract — les fichiers source ne seront pas modifiés');
+
+        // 2. Générer les clés — merge stable avec les existantes
+        logger.step('Mise à jour des clés');
+        const genResult = await generateMessages(strings, {
+          sourceLocale: config.sourceLocale,
+          messagesDir: config.messagesDir,
+          existingMessages,
+        });
+
+        if (genResult.newCount > 0) {
+          logger.success(`${genResult.newCount} nouvelle${genResult.newCount > 1 ? 's' : ''} clé${genResult.newCount > 1 ? 's' : ''} ajoutée${genResult.newCount > 1 ? 's' : ''} → ${relative(projectRoot, genResult.outputPath)}`);
+          logger.dim(`Total : ${Object.keys(genResult.messages).length} clés`);
+        } else {
+          logger.success(`Aucune nouvelle clé — ${Object.keys(genResult.messages).length} clés existantes inchangées`);
+        }
+
+        // Détection + rapport module-scope (sauf si --no-module-scope)
+        if (options.moduleScope) {
+          const tsProject = new Project({ skipAddingFilesFromTsConfig: true, skipFileDependencyResolution: true });
+          let totalModuleScope = 0;
+          const moduleScopeByFile = new Map<string, Array<{ value: string; key: string; line: number }>>();
+          for (const filePath of stringsByFile.keys()) {
+            const sourceFile = tsProject.addSourceFileAtPath(filePath);
+            const matches = findModuleScopeStrings(sourceFile, genResult.keyMap);
+            if (matches.length > 0) {
+              moduleScopeByFile.set(filePath, matches);
+              totalModuleScope += matches.length;
+            }
+          }
+          if (totalModuleScope > 0) {
+            logger.warn(`${totalModuleScope} string${totalModuleScope > 1 ? 's' : ''} module-scope (traductions dans le JSON, intégration manuelle requise)`);
+            for (const [file, items] of moduleScopeByFile) {
+              const rel = relative(projectRoot, file);
+              for (const item of items) {
+                const preview = item.value.length > 50 ? item.value.slice(0, 50) + '…' : item.value;
+                logger.dim(`  ${rel}:${item.line}  "${preview}"  →  ${item.key}`);
+              }
+            }
+            logger.dim('  → Déplacez ces const dans vos composants pour utiliser t("clé")');
+          }
+        } else if (excludedModuleScope > 0) {
+          logger.dim(`${excludedModuleScope} string${excludedModuleScope > 1 ? 's' : ''} module-scope ignorée${excludedModuleScope > 1 ? 's' : ''}`);
+        }
+      } else {
+        logger.success('Toutes les strings sont déjà dans les fichiers de traduction');
+      }
+
+      // 3. Traduction incrémentale — toujours exécutée
+      logger.step('Synchronisation des traductions');
+      const transResult = await translateMessages({
+        sourceLocale: config.sourceLocale,
+        targetLocales: config.targetLocales,
+        messagesDir: config.messagesDir,
+        apiKey,
+      });
+
+      if (transResult.totalTranslated > 0) {
+        logger.success(`${transResult.totalTranslated} string${transResult.totalTranslated > 1 ? 's' : ''} traduite${transResult.totalTranslated > 1 ? 's' : ''}`);
+      } else {
+        logger.success('Toutes les traductions sont à jour');
+      }
+      if (transResult.skipped.length > 0) {
+        logger.dim(`Déjà à jour : ${transResult.skipped.join(', ')}`);
+      }
+
+      // 4. Configuration Next.js optionnelle
+      if (options.inject) {
+        logger.step('Configuration Next.js');
+        const injResult = await injectAll({
+          projectRoot,
+          locales: [config.sourceLocale, ...config.targetLocales],
+          defaultLocale: config.sourceLocale,
+          silent: true,
+        });
+        logInjectResult(injResult);
+      } else if (options.switcher) {
+        logger.step('Injection du Language Switcher');
+        try {
+          const r = await injectLanguageSwitcher(projectRoot, { silent: true });
+          if (r.skipped) logger.dim('LanguageSwitcher — déjà présent');
+          else           logger.success('LanguageSwitcher créé');
+        } catch (e) {
+          logger.warn(`LanguageSwitcher — ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+
+      logger.blank();
+      logger.success('Synchronisation terminée — aucun fichier source modifié');
+      logger.dim('Lancez "next-auto-i18n extract" pour générer le guide d\'intégration complet.');
     } catch (err) {
       logger.error(err instanceof Error ? err.message : String(err));
       process.exit(1);

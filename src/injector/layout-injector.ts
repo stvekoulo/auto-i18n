@@ -10,7 +10,6 @@ export interface LayoutInjectorResult {
 
 const COMPILER_OPTIONS = { allowJs: true, jsx: 4, skipLibCheck: true } as const;
 
-/** Cherche le fichier layout dans app/ ou src/app/. */
 export async function findLayoutFile(projectRoot: string): Promise<string | null> {
   for (const candidate of [
     join(projectRoot, 'app', 'layout.tsx'),

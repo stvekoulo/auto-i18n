@@ -29,7 +29,6 @@ export async function injectRouting(
   config: RoutingConfig,
   options: { silent?: boolean } = {},
 ): Promise<RoutingInjectorResult> {
-  // Détecter si le projet utilise src/
   const layoutPath = await findLayoutFile(projectRoot);
   const useSrc = layoutPath ? layoutPath.includes(join('src', 'app')) : false;
   const baseDir = useSrc ? join(projectRoot, 'src') : projectRoot;
@@ -37,7 +36,6 @@ export async function injectRouting(
   const i18nDir = join(baseDir, 'i18n');
   const filePath = join(i18nDir, 'routing.ts');
 
-  // Vérifier les deux emplacements possibles
   for (const dir of [join(baseDir, 'i18n'), join(projectRoot, 'i18n')]) {
     try {
       await access(join(dir, 'routing.ts'));

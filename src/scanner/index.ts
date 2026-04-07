@@ -39,15 +39,10 @@ const NEXT_APP_DIRS = new Set([
 export interface ScanOptions {
   ignoreDirs?: string[];
   ignoreFiles?: string[];
-  /** Glob patterns à ignorer (ex: '**\/*.test.*') */
   ignorePatterns?: string[];
   filter?: FilterOptions;
 }
 
-/**
- * Convertit un glob pattern simple en RegExp.
- * Supporte uniquement ** et * (couvre les cas courants).
- */
 function globToRegex(pattern: string): RegExp {
   const escaped = pattern
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')

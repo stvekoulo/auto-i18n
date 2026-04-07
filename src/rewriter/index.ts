@@ -13,9 +13,7 @@ import { rewriteAttributes } from './attr-rewriter.js';
 import { rewriteStringLiterals, findModuleScopeStrings } from './const-rewriter.js';
 
 export interface RewriteOptions {
-  /** Mapping { valeur originale → clé i18n } produit par le generator. */
   keyMap: Map<string, string>;
-  /** Supprime les logs terminal. */
   silent?: boolean;
 }
 
@@ -38,18 +36,12 @@ export interface RewriteResult {
   filesModified: number;
   filesSkipped: number;
   totalReplaced: number;
-  /** Strings traduites dans le JSON mais non réécrites (module-scope). */
   moduleScopeStrings: UnrewrittenString[];
-  /** Détail par fichier traité. */
   details: FileRewriteDetail[];
 }
 
 type FunctionLike = FunctionDeclaration | ArrowFunction | FunctionExpression;
 
-/**
- * Retourne `true` si le fichier contient une directive `'use client'` en tête.
- * Les Server Components n'ont pas cette directive.
- */
 export function isClientComponent(sourceFile: SourceFile): boolean {
   const first = sourceFile.getStatements()[0];
   if (!first) return false;
@@ -62,7 +54,6 @@ export function isClientComponent(sourceFile: SourceFile): boolean {
   return false;
 }
 
-/** Remonte l'AST pour trouver la fonction englobante la plus proche. */
 function findEnclosingFunction(node: Node): FunctionLike | null {
   let current = node.getParent();
   while (current) {
@@ -112,7 +103,6 @@ export function injectTDeclarations(sourceFile: SourceFile, isClient: boolean): 
 
     bodyNode.insertStatements(0, decl);
 
-    // Server Component : la fonction doit être async pour `await getTranslations()`
     if (!isClient) {
       func.setIsAsync(true);
     }
@@ -135,10 +125,6 @@ export function addNextIntlImport(sourceFile: SourceFile, isClient: boolean): vo
   }
 }
 
-/**
- * Applique toutes les réécritures sur un SourceFile (sans I/O disque).
- * Retourne le nombre total de strings remplacées.
- */
 export function rewriteSourceFile(
   sourceFile: SourceFile,
   keyMap: Map<string, string>,

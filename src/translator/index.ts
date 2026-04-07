@@ -61,13 +61,11 @@ export async function translateMessages(
       const textsToTranslate = missingKeys.map(k => sourceMessages[k]);
       const translations = await translate(textsToTranslate, targetLocale, translateOptions);
 
-      // Fusionne les traductions existantes + nouvelles
       const merged: Record<string, string> = { ...existing };
       for (let i = 0; i < missingKeys.length; i++) {
         merged[missingKeys[i]] = translations[i];
       }
 
-      // Trie les clés pour un diff git stable
       const sorted = Object.fromEntries(
         Object.entries(merged).sort(([a], [b]) => a.localeCompare(b)),
       );

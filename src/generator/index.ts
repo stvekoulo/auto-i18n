@@ -9,33 +9,16 @@ export interface GenerateOptions {
   /** Locale de la langue source (ex: "fr"). */
   sourceLocale: string;
   messagesDir: string;
-  /**
-   * Messages existants à préserver (pour sync incrémental).
-   * Les clés existantes sont conservées ; seules les nouvelles strings reçoivent de nouvelles clés.
-   * Le JSON résultant contient TOUS les messages (existants + nouveaux).
-   */
   existingMessages?: Record<string, string>;
 }
 
 export interface GenerateResult {
-  /**
-   * Mapping valeur originale → clé i18n.
-   * Utilisé par le rewriter pour savoir quelle clé injecter.
-   */
   keyMap: Map<string, string>;
   messages: Record<string, string>;
   outputPath: string;
   newCount: number;
 }
 
-/**
- * Génère le fichier de traduction source à partir de la liste de strings extraites.
- *
- * En mode incrémental (existingMessages fourni) :
- *   - Les strings déjà présentes gardent leur clé existante (stable pour le code).
- *   - Les nouvelles strings reçoivent une clé unique qui n'entre pas en collision.
- *   - Le JSON résultant contient toutes les entrées (existantes + nouvelles).
- */
 export async function generateMessages(
   strings: ExtractedString[],
   options: GenerateOptions,
@@ -80,7 +63,6 @@ export async function generateMessages(
     newCount++;
   }
 
-  // Messages finaux = messages existants (préservés) + nouvelles entrées
   const messages: Record<string, string> = { ...existingMessages };
   for (const [value, key] of keyMap) {
     messages[key] = value;
