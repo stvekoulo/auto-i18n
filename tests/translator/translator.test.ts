@@ -97,6 +97,7 @@ describe('translateMessages — traduction complète', () => {
     });
 
     expect(result.totalTranslated).toBe(3); // 1 string × 3 locales
+    expect(result.failureReasons).toEqual({});
     const en = await readJson(join(dir, 'en.json'));
     const es = await readJson(join(dir, 'es.json'));
     const de = await readJson(join(dir, 'de.json'));
@@ -268,6 +269,32 @@ describe('translateMessages — gestion d\'erreurs', () => {
     ).rejects.toThrow('Quota dépassé');
   });
 
+  it('continue sur les autres locales si une locale échoue', async () => {
+    const dir = await makeTmpDir();
+    await writeJson(join(dir, 'fr.json'), { bonjour: 'Bonjour' });
+
+    const { DeepLError } = await import('../../src/translator/deepl');
+    mockTranslate
+      .mockResolvedValueOnce(['Hello'])
+      .mockRejectedValueOnce(new DeepLError('Quota dépassé', 456))
+      .mockResolvedValueOnce(['Hallo']);
+
+    const result = await translateMessages({
+      sourceLocale: 'fr',
+      targetLocales: ['en', 'es', 'de'],
+      messagesDir: dir,
+      silent: true,
+    });
+
+    expect(result.totalTranslated).toBe(2);
+    expect(result.failed).toEqual(['es']);
+    expect(result.failureReasons['es']).toBe('provider');
+    const en = await readJson(join(dir, 'en.json'));
+    const de = await readJson(join(dir, 'de.json'));
+    expect(en['bonjour']).toBe('Hello');
+    expect(de['bonjour']).toBe('Hallo');
+  });
+
   it('lance une erreur si le fichier source est absent', async () => {
     const dir = await makeTmpDir();
     // Pas de fr.json
@@ -280,5 +307,41 @@ describe('translateMessages — gestion d\'erreurs', () => {
         silent: true,
       }),
     ).rejects.toThrow();
+  });
+
+  it('retry sur erreur transitoire avant de réussir', async () => {
+    const dir = await makeTmpDir();
+    await writeJson(join(dir, 'fr.json'), { bonjour: 'Bonjour' });
+
+    const { DeepLError } = await import('../../src/translator/deepl');
+    mockTranslate
+      .mockRejectedValueOnce(new DeepLError('Trop de requêtes', 429))
+      .mockResolvedValueOnce(['Hello']);
+
+    const result = await translateMessages({
+      sourceLocale: 'fr',
+      targetLocales: ['en'],
+      messagesDir: dir,
+      silent: true,
+    });
+
+    expect(result.totalTranslated).toBe(1);
+    expect(mockTranslate).toHaveBeenCalledTimes(2);
+  });
+
+  it('rejette une traduction avec placeholders incohérents', async () => {
+    const dir = await makeTmpDir();
+    await writeJson(join(dir, 'fr.json'), { salut_name: 'Salut {name}' });
+
+    mockTranslate.mockResolvedValueOnce(['Hello']);
+
+    await expect(
+      translateMessages({
+        sourceLocale: 'fr',
+        targetLocales: ['en'],
+        messagesDir: dir,
+        silent: true,
+      }),
+    ).rejects.toThrow(/Placeholders incohérents/i);
   });
 });

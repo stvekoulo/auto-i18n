@@ -1,11 +1,28 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { readFileSync } from 'fs';
+import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { parseSource } from '../../src/scanner/ast-parser';
 import { extractStrings, type ExtractedString, type StringType } from '../../src/scanner/string-extractor';
 import { shouldIgnore } from '../../src/scanner/filters';
+import { scanProject } from '../../src/scanner';
 
 const FIXTURE_PATH = join(import.meta.dirname, 'fixtures', 'TestComponent.tsx');
+let tmpDirs: string[] = [];
+
+async function makeTmpDir(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'auto-i18n-scanner-test-'));
+  tmpDirs.push(dir);
+  return dir;
+}
+
+afterEach(async () => {
+  for (const dir of tmpDirs) {
+    await rm(dir, { recursive: true, force: true });
+  }
+  tmpDirs = [];
+});
 
 function getFixtureStrings(): ExtractedString[] {
   const content = readFileSync(FIXTURE_PATH, 'utf-8');
@@ -294,5 +311,40 @@ describe('extractStrings — fixture TestComponent', () => {
       expect(kept.some(s => s.value === 'Rechercher un projet')).toBe(true);
       expect(kept.some(s => s.value === 'Tableau de bord')).toBe(true);
     });
+  });
+});
+
+describe('scanProject', () => {
+  it('scanne aussi les dossiers ui, features et shared à la racine', async () => {
+    const dir = await makeTmpDir();
+    await mkdir(join(dir, 'ui'), { recursive: true });
+    await mkdir(join(dir, 'features', 'dashboard'), { recursive: true });
+    await mkdir(join(dir, 'shared'), { recursive: true });
+
+    await writeFile(join(dir, 'ui', 'Button.tsx'), 'export function Button() { return <button>CTA</button>; }');
+    await writeFile(join(dir, 'features', 'dashboard', 'Page.tsx'), 'export default function Page() { return <h1>Dashboard</h1>; }');
+    await writeFile(join(dir, 'shared', 'Banner.tsx'), 'export function Banner() { return <p>Shared banner</p>; }');
+
+    const result = await scanProject(dir);
+    const values = result.map(item => item.value);
+
+    expect(values).toContain('CTA');
+    expect(values).toContain('Dashboard');
+    expect(values).toContain('Shared banner');
+  });
+
+  it('permet de restreindre explicitement les dossiers racine scannés', async () => {
+    const dir = await makeTmpDir();
+    await mkdir(join(dir, 'shared'), { recursive: true });
+    await mkdir(join(dir, 'app'), { recursive: true });
+
+    await writeFile(join(dir, 'shared', 'Banner.tsx'), 'export function Banner() { return <p>Ignored</p>; }');
+    await writeFile(join(dir, 'app', 'page.tsx'), 'export default function Page() { return <p>Kept</p>; }');
+
+    const result = await scanProject(dir, { rootDirs: ['app'] });
+    const values = result.map(item => item.value);
+
+    expect(values).toContain('Kept');
+    expect(values).not.toContain('Ignored');
   });
 });

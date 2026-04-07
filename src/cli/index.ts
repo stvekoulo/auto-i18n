@@ -7,85 +7,64 @@ import { loadConfig, saveConfig, buildConfig, findMissingKeys, CONFIG_FILENAME }
 import { loadEnv, getApiKey, saveApiKeyToEnv, ensureGitignore } from '../utils/env.js';
 import { isPackageInstalled } from '../utils/deps.js';
 import { askSourceLocale, askTargetLocales, askApiKey, askConfirmDryRun } from './prompts.js';
-import { scanProject } from '../scanner/index.js';
-import { generateMessages } from '../generator/index.js';
 import { translateMessages } from '../translator/index.js';
-import { rewriteFiles } from '../rewriter/index.js';
-import { findModuleScopeStrings } from '../rewriter/const-rewriter.js';
-import { injectAll, injectLanguageSwitcher, type InjectAllResult } from '../injector/index.js';
-import { Project } from 'ts-morph';
 import { generateDoc, type FileDocEntry } from './doc-generator.js';
+import {
+  analyzeProject,
+  applyInjectionPlan,
+  applyProjectChanges,
+  buildInjectionPlan,
+  planProjectChanges,
+  reportAnalysisSummary,
+  reportInjectionResult,
+  reportRunResult,
+  type AnalysisResult,
+} from '../engine/index.js';
 
-const MAX_FILES_DISPLAY = 10;
-const MAX_REWRITE_DISPLAY = 15;
+async function readExistingMessages(
+  messagesDir: string,
+  sourceLocale: string,
+): Promise<Record<string, string>> {
+  const sourcePath = join(resolve(messagesDir), `${sourceLocale}.json`);
+  try {
+    return JSON.parse(await readFile(sourcePath, 'utf-8')) as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
 
-function logFileList(
-  entries: Array<[string, number]>,
+function buildGuideEntries(
   projectRoot: string,
-  suffix: (n: number) => string,
-): void {
-  for (const [file, count] of entries.slice(0, MAX_FILES_DISPLAY)) {
-    const rel = relative(projectRoot, file);
-    logger.dim(`  ${rel.padEnd(60)} ${suffix(count)}`);
+  analysis: AnalysisResult,
+): FileDocEntry[] {
+  const entries: FileDocEntry[] = [];
+
+  for (const [filePath, fileStrings] of analysis.stringsByFile) {
+    const relevantStrings = fileStrings.filter(s =>
+      analysis.selectedStrings.some(selected =>
+        selected.filePath === s.filePath &&
+        selected.line === s.line &&
+        selected.column === s.column &&
+        selected.value === s.value,
+      ),
+    );
+    if (relevantStrings.length === 0) continue;
+
+    const moduleScopeValues = new Set(
+      analysis.moduleScopeOccurrences
+        .filter(item => item.filePath === filePath)
+        .map(item => item.value),
+    );
+
+    entries.push({
+      filePath,
+      relPath: relative(projectRoot, filePath),
+      strings: relevantStrings,
+      moduleScopeValues,
+    });
   }
-  if (entries.length > MAX_FILES_DISPLAY) {
-    const more = entries.length - MAX_FILES_DISPLAY;
-    logger.dim(`  ... et ${more} autre${more > 1 ? 's' : ''} fichier${more > 1 ? 's' : ''}`);
-  }
-}
 
-/** Regroupe une liste de ExtractedString par fichier et retourne les entrées triées. */
-function groupByFile(strings: Array<{ filePath: string }>): Array<[string, number]> {
-  const map = new Map<string, number>();
-  for (const s of strings) {
-    map.set(s.filePath, (map.get(s.filePath) ?? 0) + 1);
-  }
-  return [...map.entries()];
-}
-
-/**
- * Détecte via ts-morph quelles valeurs de strings se trouvent au module-scope.
- * Utilise une keyMap temporaire value→value pour éviter une dépendance sur generateMessages.
- */
-function detectModuleScopeValues(
-  stringsByFile: Map<string, Array<{ value: string }>>,
-): Set<string> {
-  const tsProject = new Project({ skipAddingFilesFromTsConfig: true, skipFileDependencyResolution: true });
-  const moduleScopeSet = new Set<string>();
-  for (const [filePath, fileStrings] of stringsByFile) {
-    const detectionMap = new Map(fileStrings.map(s => [s.value, s.value]));
-    const sourceFile = tsProject.addSourceFileAtPath(filePath);
-    for (const m of findModuleScopeStrings(sourceFile, detectionMap)) {
-      moduleScopeSet.add(m.value);
-    }
-  }
-  return moduleScopeSet;
-}
-
-/** Logue le résultat d'un injectAll de manière uniforme. */
-function logInjectResult(injResult: InjectAllResult): void {
-  const ok  = (msg: string) => logger.success(msg);
-  const warn = (msg: string) => logger.warn(msg);
-
-  if (injResult.config.ok)         ok('next.config configuré');
-  else if (injResult.config.error) warn(`next.config — ${injResult.config.error}`);
-
-  if (injResult.middleware.ok) {
-    if (injResult.middleware.warning) warn(injResult.middleware.warning);
-    else                              ok('middleware.ts créé');
-  } else if (injResult.middleware.error) warn(`middleware.ts — ${injResult.middleware.error}`);
-
-  if (injResult.routing.ok)         ok('i18n/routing.ts créé');
-  else if (injResult.routing.error) warn(`i18n/routing.ts — ${injResult.routing.error}`);
-
-  if (injResult.request.ok)         ok('i18n/request.ts créé');
-  else if (injResult.request.error) warn(`i18n/request.ts — ${injResult.request.error}`);
-
-  if (injResult.switcher.ok)         ok('LanguageSwitcher créé');
-  else if (injResult.switcher.error) warn(`LanguageSwitcher — ${injResult.switcher.error}`);
-
-  if (injResult.localeStructure.ok)         ok(`app/[locale]/ structuré`);
-  else if (injResult.localeStructure.error) warn(`app/[locale]/ — ${injResult.localeStructure.error}`);
+  return entries;
 }
 
 const program = new Command();
@@ -138,49 +117,52 @@ program
       await saveConfig(projectRoot, config);
       logger.success(`${CONFIG_FILENAME} créé`);
 
-      // 2. Scan
       logger.step('Scan du projet');
-      const strings = await scanProject(projectRoot, {
+      const analysis = await analyzeProject({
+        projectRoot,
         ignorePatterns: config.ignore,
+        includeModuleScope: true,
       });
 
-      if (strings.length === 0) {
+      if (analysis.selectedStrings.length === 0) {
         logger.warn('Aucune string traduisible trouvée — arrêt');
         return;
       }
 
-      const scanEntries = groupByFile(strings);
-      const fileCount = scanEntries.length;
-      logger.success(`${strings.length} strings trouvées dans ${fileCount} fichier${fileCount > 1 ? 's' : ''}`);
-      logFileList(scanEntries, projectRoot, n => `${n} string${n > 1 ? 's' : ''}`);
+      reportAnalysisSummary(projectRoot, analysis);
 
-      // 3. Génération fichier source
-      logger.step('Génération des clés');
-      const genResult = await generateMessages(strings, {
+      const plan = await planProjectChanges({
+        projectRoot,
+        analysis,
         sourceLocale,
+        targetLocales,
         messagesDir: config.messagesDir,
+        apiKey,
+        shouldRewrite: true,
+        shouldTranslate: true,
+        shouldInject: true,
       });
-      const keyCount = Object.keys(genResult.messages).length;
-      logger.success(`${keyCount} clés générées → ${relative(projectRoot, genResult.outputPath)}`);
+
+      const keyCount = Object.keys(plan.messagesPlan.messages).length;
 
       // Dry-run : montrer un aperçu et demander confirmation
       if (options.dryRun) {
-        const fileDetails = scanEntries.map(([filePath, stringCount]) => ({
+        const fileDetails = [...analysis.stringsByFile.entries()].map(([filePath, fileStrings]) => ({
           filePath: relative(projectRoot, filePath),
-          stringCount,
+          stringCount: fileStrings.length,
         }));
-        const sampleKeys = Object.entries(genResult.messages)
+        const sampleKeys = Object.entries(plan.messagesPlan.messages)
           .slice(0, 5)
           .map(([key, value]) => ({ value, key }));
 
         const proceed = await askConfirmDryRun({
-          stringsFound: strings.length,
+          stringsFound: analysis.selectedStrings.length,
           keysGenerated: keyCount,
-          filesToRewrite: fileCount,
+          filesToRewrite: plan.rewritePlan.filePaths.length,
           targetLocales,
           fileDetails,
           sampleKeys,
-          messagesPath: relative(projectRoot, genResult.outputPath),
+          messagesPath: join(config.messagesDir, `${sourceLocale}.json`),
         });
         if (!proceed) {
           logger.warn('Abandon');
@@ -188,22 +170,6 @@ program
         }
       }
 
-      // 4. Traduction
-      logger.step('Traduction via DeepL');
-      const transResult = await translateMessages({
-        sourceLocale,
-        targetLocales,
-        messagesDir: config.messagesDir,
-        apiKey,
-      });
-      if (transResult.totalTranslated > 0) {
-        logger.success(`${transResult.totalTranslated} strings traduites`);
-      }
-      if (transResult.skipped.length > 0) {
-        logger.dim(`Déjà à jour : ${transResult.skipped.join(', ')}`);
-      }
-
-      // 5. Vérification de next-intl (installé via peerDependencies)
       logger.step('Vérification des dépendances');
       const hasNextIntl = await isPackageInstalled(projectRoot, 'next-intl');
       if (!hasNextIntl) {
@@ -213,97 +179,8 @@ program
         logger.success('next-intl installé');
       }
 
-      // 6. Réécriture des composants
-      logger.step('Réécriture des composants');
-      const filePaths = [...new Set(strings.map(s => s.filePath))];
-      try {
-        const rwResult = await rewriteFiles(filePaths, {
-          keyMap: genResult.keyMap,
-          silent: true,
-        });
-
-        // Détail par fichier modifié
-        const modifiedDetails = rwResult.details.filter(d => !d.skipped);
-        for (const d of modifiedDetails.slice(0, MAX_REWRITE_DISPLAY)) {
-          const rel = relative(projectRoot, d.filePath);
-          if (d.error) {
-            logger.warn(`${rel} — erreur: ${d.error}`);
-          } else {
-            logger.success(`${rel} — ${d.replaced} remplacement${d.replaced > 1 ? 's' : ''}`);
-          }
-        }
-        if (modifiedDetails.length > MAX_REWRITE_DISPLAY) {
-          const more = modifiedDetails.length - MAX_REWRITE_DISPLAY;
-          logger.dim(`  ... et ${more} autre${more > 1 ? 's' : ''} fichier${more > 1 ? 's' : ''} modifié${more > 1 ? 's' : ''}`);
-        }
-
-        const skippedCount = rwResult.details.filter(d => d.skipped && !d.error).length;
-        if (skippedCount > 0) {
-          logger.dim(`${skippedCount} fichier${skippedCount > 1 ? 's' : ''} sans modification nécessaire`);
-        }
-
-        logger.success(
-          `Total : ${rwResult.totalReplaced} remplacement${rwResult.totalReplaced > 1 ? 's' : ''} dans ${rwResult.filesModified} fichier${rwResult.filesModified > 1 ? 's' : ''}`,
-        );
-        if (rwResult.filesModified > 0) {
-          logger.dim('Backups disponibles dans *.backup');
-        }
-
-        // Avertir sur les strings module-scope non réécrites
-        if (rwResult.moduleScopeStrings.length > 0) {
-          const count = rwResult.moduleScopeStrings.length;
-          logger.warn(
-            `${count} string${count > 1 ? 's' : ''} module-scope non réécrite${count > 1 ? 's' : ''} (traductions disponibles dans le JSON)`,
-          );
-          const byFile = new Map<string, typeof rwResult.moduleScopeStrings>();
-          for (const s of rwResult.moduleScopeStrings) {
-            const list = byFile.get(s.filePath) ?? [];
-            list.push(s);
-            byFile.set(s.filePath, list);
-          }
-          for (const [file, items] of byFile) {
-            const rel = relative(projectRoot, file);
-            for (const item of items) {
-              const preview = item.value.length > 50 ? item.value.slice(0, 50) + '…' : item.value;
-              logger.dim(`  ${rel}:${item.line}  "${preview}"  →  ${item.key}`);
-            }
-          }
-          logger.dim('  → Déplacez ces const dans vos composants pour utiliser t("clé")');
-        }
-      } catch (rwErr) {
-        logger.warn(
-          `Réécriture partielle (${rwErr instanceof Error ? rwErr.message : String(rwErr)})`,
-        );
-        logger.dim('Certains fichiers n\'ont pas pu être réécrits. Vérifiez manuellement.');
-      }
-
-      // 7. Injection config Next.js
-      logger.step('Configuration Next.js');
-      const injResult = await injectAll({
-        projectRoot,
-        locales: [sourceLocale, ...targetLocales],
-        defaultLocale: sourceLocale,
-        silent: true,
-      });
-
-      if (injResult.config.ok) logger.success('next.config configuré');
-      else if (injResult.config.error) logger.warn(`next.config — ${injResult.config.error}`);
-
-      if (injResult.middleware.ok) {
-        if (injResult.middleware.warning) logger.warn(injResult.middleware.warning);
-        else logger.success('middleware.ts créé');
-      }
-
-      if (injResult.routing.ok) logger.success('i18n/routing.ts créé');
-
-      if (injResult.request.ok) logger.success('i18n/request.ts créé');
-      else if (injResult.request.error) logger.warn(`i18n/request.ts — ${injResult.request.error}`);
-
-      if (injResult.switcher.ok) logger.success('LanguageSwitcher créé');
-      else if (injResult.switcher.error) logger.warn(`LanguageSwitcher — ${injResult.switcher.error}`);
-
-      if (injResult.localeStructure.ok) logger.success('app/[locale]/ structuré');
-      else if (injResult.localeStructure.error) logger.warn(`app/[locale]/ — ${injResult.localeStructure.error}`);
+      const result = await applyProjectChanges(plan, projectRoot);
+      reportRunResult(projectRoot, result);
 
       logger.blank();
       logger.success('Internationalisation configurée avec succès !');
@@ -340,117 +217,40 @@ program
         process.exit(1);
       }
 
-      let existingMessages: Record<string, string> = {};
-      try {
-        existingMessages = JSON.parse(await readFile(sourcePath, 'utf-8')) as Record<string, string>;
-      } catch {
-        logger.warn(`Impossible de lire ${relative(projectRoot, sourcePath)} — régénération complète`);
-      }
+      const existingMessages = await readExistingMessages(config.messagesDir, config.sourceLocale);
 
       const existingCount = Object.keys(existingMessages).length;
       logger.info(`${existingCount} clé${existingCount > 1 ? 's' : ''} existante${existingCount > 1 ? 's' : ''} dans ${config.sourceLocale}.json`);
 
-      // 1. Scan — trouve uniquement les strings non encore internationalisées
       logger.step('Scan du projet');
-      const strings = await scanProject(projectRoot, { ignorePatterns: config.ignore });
+      const analysis = await analyzeProject({
+        projectRoot,
+        ignorePatterns: config.ignore,
+        existingMessages,
+        includeModuleScope: true,
+      });
 
-      if (strings.length > 0) {
-        const scanEntries = groupByFile(strings);
-        const fileCount = scanEntries.length;
-        logger.success(`${strings.length} string${strings.length > 1 ? 's' : ''} trouvée${strings.length > 1 ? 's' : ''} dans ${fileCount} fichier${fileCount > 1 ? 's' : ''}`);
-        logFileList(scanEntries, projectRoot, n => `${n} string${n > 1 ? 's' : ''}`);
-
-        // 2. Générer les clés — merge stable avec les existantes
-        logger.step('Mise à jour des clés');
-        const genResult = await generateMessages(strings, {
-          sourceLocale: config.sourceLocale,
-          messagesDir: config.messagesDir,
-          existingMessages,
-        });
-
-        if (genResult.newCount > 0) {
-          logger.success(`${genResult.newCount} nouvelle${genResult.newCount > 1 ? 's' : ''} clé${genResult.newCount > 1 ? 's' : ''} ajoutée${genResult.newCount > 1 ? 's' : ''} → ${relative(projectRoot, genResult.outputPath)}`);
-          logger.dim(`Total : ${Object.keys(genResult.messages).length} clés`);
-        } else {
-          logger.success(`Aucune nouvelle clé — ${Object.keys(genResult.messages).length} clés existantes inchangées`);
-        }
-
-        // 3. Réécrire le code pour les nouvelles strings
-        logger.step('Réécriture des composants');
-        const filePaths = [...new Set(strings.map(s => s.filePath))];
-        try {
-          const rwResult = await rewriteFiles(filePaths, {
-            keyMap: genResult.keyMap,
-            silent: true,
-          });
-
-          const modifiedDetails = rwResult.details.filter(d => !d.skipped);
-          for (const d of modifiedDetails.slice(0, MAX_REWRITE_DISPLAY)) {
-            const rel = relative(projectRoot, d.filePath);
-            if (d.error) {
-              logger.warn(`${rel} — erreur: ${d.error}`);
-            } else {
-              logger.success(`${rel} — ${d.replaced} remplacement${d.replaced > 1 ? 's' : ''}`);
-            }
-          }
-          if (modifiedDetails.length > MAX_REWRITE_DISPLAY) {
-            const more = modifiedDetails.length - MAX_REWRITE_DISPLAY;
-            logger.dim(`  ... et ${more} autre${more > 1 ? 's' : ''} fichier${more > 1 ? 's' : ''} modifié${more > 1 ? 's' : ''}`);
-          }
-
-          const skippedCount = rwResult.details.filter(d => d.skipped && !d.error).length;
-          if (skippedCount > 0) {
-            logger.dim(`${skippedCount} fichier${skippedCount > 1 ? 's' : ''} sans modification nécessaire`);
-          }
-
-          if (rwResult.filesModified > 0) {
-            logger.success(`Total : ${rwResult.totalReplaced} remplacement${rwResult.totalReplaced > 1 ? 's' : ''} dans ${rwResult.filesModified} fichier${rwResult.filesModified > 1 ? 's' : ''}`);
-            logger.dim('Backups disponibles dans *.backup');
-          }
-
-          if (rwResult.moduleScopeStrings.length > 0) {
-            const count = rwResult.moduleScopeStrings.length;
-            logger.warn(`${count} string${count > 1 ? 's' : ''} module-scope non réécrite${count > 1 ? 's' : ''} (traductions disponibles dans le JSON)`);
-            const byFile = new Map<string, typeof rwResult.moduleScopeStrings>();
-            for (const s of rwResult.moduleScopeStrings) {
-              const list = byFile.get(s.filePath) ?? [];
-              list.push(s);
-              byFile.set(s.filePath, list);
-            }
-            for (const [file, items] of byFile) {
-              const rel = relative(projectRoot, file);
-              for (const item of items) {
-                const preview = item.value.length > 50 ? item.value.slice(0, 50) + '…' : item.value;
-                logger.dim(`  ${rel}:${item.line}  "${preview}"  →  ${item.key}`);
-              }
-            }
-            logger.dim('  → Déplacez ces const dans vos composants pour utiliser t("clé")');
-          }
-        } catch (rwErr) {
-          logger.warn(`Réécriture partielle (${rwErr instanceof Error ? rwErr.message : String(rwErr)})`);
-          logger.dim('Certains fichiers n\'ont pas pu être réécrits. Vérifiez manuellement.');
-        }
+      if (analysis.selectedStrings.length > 0) {
+        reportAnalysisSummary(projectRoot, analysis);
       } else {
         logger.success('Toutes les strings sont déjà internationalisées');
       }
 
-      // 4. Traduction incrémentale — toujours exécutée (nouvelles locales, clés manquantes…)
-      logger.step('Synchronisation des traductions');
-      const transResult = await translateMessages({
+      const plan = await planProjectChanges({
+        projectRoot,
+        analysis,
         sourceLocale: config.sourceLocale,
         targetLocales: config.targetLocales,
         messagesDir: config.messagesDir,
+        existingMessages,
         apiKey,
+        shouldRewrite: true,
+        shouldTranslate: true,
+        shouldInject: false,
       });
 
-      if (transResult.totalTranslated > 0) {
-        logger.success(`${transResult.totalTranslated} string${transResult.totalTranslated > 1 ? 's' : ''} traduite${transResult.totalTranslated > 1 ? 's' : ''}`);
-      } else {
-        logger.success('Toutes les traductions sont à jour');
-      }
-      if (transResult.skipped.length > 0) {
-        logger.dim(`Déjà à jour : ${transResult.skipped.join(', ')}`);
-      }
+      const result = await applyProjectChanges(plan, projectRoot);
+      reportRunResult(projectRoot, result);
 
       logger.blank();
       logger.success('Synchronisation terminée');
@@ -498,16 +298,25 @@ program
       logger.success(`${transResult.totalTranslated} strings traduites`);
       logger.dim(`Fichier créé : ${join(config.messagesDir, `${normalizedLocale}.json`)}`);
 
-      // Mettre à jour routing.ts si présent
       const allLocales = [config.sourceLocale, ...config.targetLocales];
       logger.step('Mise à jour de la configuration Next.js');
-      await injectAll({
+      const injectionPlan = await buildInjectionPlan({
         projectRoot,
-        locales: allLocales,
-        defaultLocale: config.sourceLocale,
-        silent: true,
+        sourceLocale: config.sourceLocale,
+        targetLocales: config.targetLocales,
+        shouldInject: true,
       });
-      logger.success(`Langues actives : ${allLocales.join(', ')}`);
+      const injectionApplyResult = await applyInjectionPlan(injectionPlan, projectRoot);
+      reportInjectionResult(injectionApplyResult.injectionResult);
+      for (const action of injectionApplyResult.manualActions) {
+        logger.warn(action);
+      }
+
+      if (injectionApplyResult.status === 'partial') {
+        logger.warn('Configuration Next.js mise à jour partiellement.');
+      } else {
+        logger.success(`Langues actives : ${allLocales.join(', ')}`);
+      }
     } catch (err) {
       logger.error(err instanceof Error ? err.message : String(err));
       process.exit(1);
@@ -625,138 +434,44 @@ const extractCmd = program
         process.exit(1);
       }
 
-      // 2. Scan
       logger.step('Scan du projet');
-      const allStrings = await scanProject(projectRoot, { ignorePatterns: config.ignore });
+      const existingMessages = await readExistingMessages(config.messagesDir, config.sourceLocale);
+      if (Object.keys(existingMessages).length > 0) {
+        logger.dim(`${Object.keys(existingMessages).length} clé${Object.keys(existingMessages).length > 1 ? 's' : ''} existante${Object.keys(existingMessages).length > 1 ? 's' : ''} chargées`);
+      }
 
-      if (allStrings.length === 0) {
+      const analysis = await analyzeProject({
+        projectRoot,
+        ignorePatterns: config.ignore,
+        existingMessages,
+        includeModuleScope: options.moduleScope,
+      });
+
+      if (analysis.selectedStrings.length === 0 && Object.keys(existingMessages).length === 0) {
         logger.warn('Aucune string traduisible trouvée — arrêt');
         return;
       }
 
-      // Grouper par fichier (utile pour le filtrage module-scope et le guide)
-      const stringsByFile = new Map<string, typeof allStrings>();
-      for (const s of allStrings) {
-        const list = stringsByFile.get(s.filePath) ?? [];
-        list.push(s);
-        stringsByFile.set(s.filePath, list);
+      if (analysis.selectedStrings.length > 0) {
+        reportAnalysisSummary(projectRoot, analysis);
       }
 
-      // Filtrage module-scope si --no-module-scope
-      let excludedModuleScope = 0;
-      let strings = allStrings;
-      if (!options.moduleScope) {
-        logger.step('Détection des strings module-scope (à exclure)');
-        const moduleScopeSet = detectModuleScopeValues(stringsByFile);
-        excludedModuleScope = moduleScopeSet.size;
-        strings = allStrings.filter(s => !moduleScopeSet.has(s.value));
-        if (excludedModuleScope > 0) {
-          logger.dim(`${excludedModuleScope} string${excludedModuleScope > 1 ? 's' : ''} module-scope exclue${excludedModuleScope > 1 ? 's' : ''} de la détection`);
-        }
-      }
-
-      const scanEntries = groupByFile(strings);
-      const fileCount = scanEntries.length;
-      logger.success(`${strings.length} string${strings.length > 1 ? 's' : ''} trouvée${strings.length > 1 ? 's' : ''} dans ${fileCount} fichier${fileCount > 1 ? 's' : ''}`);
-      logFileList(scanEntries, projectRoot, n => `${n} string${n > 1 ? 's' : ''}`);
-
-      // 3. Messages existants
-      const sourcePath = join(resolve(config.messagesDir), `${config.sourceLocale}.json`);
-      let existingMessages: Record<string, string> = {};
-      try {
-        existingMessages = JSON.parse(await readFile(sourcePath, 'utf-8')) as Record<string, string>;
-        const existingCount = Object.keys(existingMessages).length;
-        logger.dim(`${existingCount} clé${existingCount > 1 ? 's' : ''} existante${existingCount > 1 ? 's' : ''} chargées`);
-      } catch {
-        // Pas encore de fichier source — génération complète
-      }
-
-      // 4. Génération des clés
-      logger.step('Génération des clés');
-      const genResult = await generateMessages(strings, {
-        sourceLocale: config.sourceLocale,
-        messagesDir: config.messagesDir,
-        existingMessages,
-      });
-      const keyCount = Object.keys(genResult.messages).length;
-      logger.success(`${keyCount} clé${keyCount > 1 ? 's' : ''} → ${relative(projectRoot, genResult.outputPath)}`);
-      if (genResult.newCount > 0) {
-        logger.dim(`Dont ${genResult.newCount} nouvelle${genResult.newCount > 1 ? 's' : ''}`);
-      }
-
-      // 5. Traduction
-      logger.step('Traduction via DeepL');
-      const transResult = await translateMessages({
+      const plan = await planProjectChanges({
+        projectRoot,
+        analysis,
         sourceLocale: config.sourceLocale,
         targetLocales: config.targetLocales,
         messagesDir: config.messagesDir,
+        existingMessages,
         apiKey,
+        shouldRewrite: false,
+        shouldTranslate: true,
+        shouldInject: Boolean(options.inject),
+        switcherOnly: Boolean(options.switcher && !options.inject),
       });
-      if (transResult.totalTranslated > 0) {
-        logger.success(`${transResult.totalTranslated} string${transResult.totalTranslated > 1 ? 's' : ''} traduite${transResult.totalTranslated > 1 ? 's' : ''}`);
-        for (const locale of config.targetLocales) {
-          logger.dim(`  ${join(config.messagesDir, `${locale}.json`)}`);
-        }
-      } else {
-        logger.success('Toutes les traductions sont à jour');
-      }
-      if (transResult.skipped.length > 0) {
-        logger.dim(`Déjà à jour : ${transResult.skipped.join(', ')}`);
-      }
 
-      // 6. Détection des strings module-scope pour le guide (si non exclues)
-      logger.step('Analyse du code source');
-      const tsProject = new Project({ skipAddingFilesFromTsConfig: true, skipFileDependencyResolution: true });
-      const fileEntries: FileDocEntry[] = [];
-      let totalModuleScope = 0;
-
-      for (const [filePath, fileStrings] of stringsByFile) {
-        const relevantStrings = fileStrings.filter(s => strings.includes(s));
-        if (relevantStrings.length === 0) continue;
-        const sourceFile = tsProject.addSourceFileAtPath(filePath);
-        const moduleScopeMatches = options.moduleScope
-          ? findModuleScopeStrings(sourceFile, genResult.keyMap)
-          : [];
-        const moduleScopeValues = new Set(moduleScopeMatches.map(m => m.value));
-        totalModuleScope += moduleScopeValues.size;
-        fileEntries.push({
-          filePath,
-          relPath: relative(projectRoot, filePath),
-          strings: relevantStrings,
-          moduleScopeValues,
-        });
-      }
-
-      if (options.moduleScope) {
-        if (totalModuleScope > 0) {
-          logger.warn(`${totalModuleScope} string${totalModuleScope > 1 ? 's' : ''} module-scope détectée${totalModuleScope > 1 ? 's' : ''} (action manuelle requise — voir guide)`);
-        } else {
-          logger.success('Aucune string module-scope détectée');
-        }
-      } else if (excludedModuleScope > 0) {
-        logger.dim(`${excludedModuleScope} string${excludedModuleScope > 1 ? 's' : ''} module-scope ignorée${excludedModuleScope > 1 ? 's' : ''} (--no-module-scope)`);
-      }
-
-      // 7. Configuration Next.js optionnelle
-      if (options.inject) {
-        logger.step('Configuration Next.js');
-        const injResult = await injectAll({
-          projectRoot,
-          locales: [config.sourceLocale, ...config.targetLocales],
-          defaultLocale: config.sourceLocale,
-          silent: true,
-        });
-        logInjectResult(injResult);
-      } else if (options.switcher) {
-        logger.step('Injection du Language Switcher');
-        try {
-          const r = await injectLanguageSwitcher(projectRoot, { silent: true });
-          if (r.skipped) logger.dim('LanguageSwitcher — déjà présent');
-          else           logger.success('LanguageSwitcher créé');
-        } catch (e) {
-          logger.warn(`LanguageSwitcher — ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
+      const result = await applyProjectChanges(plan, projectRoot);
+      reportRunResult(projectRoot, result);
 
       // 8. Génération du guide Markdown
       logger.step('Génération du guide');
@@ -772,11 +487,15 @@ const extractCmd = program
         sourceLocale: config.sourceLocale,
         targetLocales: config.targetLocales,
         messagesDir: config.messagesDir,
-        keyMap: genResult.keyMap,
-        files: fileEntries,
+        keyMap: plan.messagesPlan.keyMap,
+        files: buildGuideEntries(projectRoot, analysis),
         outputPath,
         date,
       });
+
+      if (analysis.moduleScopeOccurrences.length > 0) {
+        logger.warn(`${analysis.moduleScopeOccurrences.length} string${analysis.moduleScopeOccurrences.length > 1 ? 's' : ''} module-scope détectée${analysis.moduleScopeOccurrences.length > 1 ? 's' : ''} (action manuelle requise — voir guide)`);
+      }
 
       logger.success(`Guide généré : ${relative(projectRoot, outputPath)}`);
       logger.blank();
@@ -817,131 +536,42 @@ extractCmd
         process.exit(1);
       }
 
-      let existingMessages: Record<string, string> = {};
-      try {
-        existingMessages = JSON.parse(await readFile(sourcePath, 'utf-8')) as Record<string, string>;
-      } catch {
-        logger.warn(`Impossible de lire ${relative(projectRoot, sourcePath)} — régénération complète`);
-      }
+      const existingMessages = await readExistingMessages(config.messagesDir, config.sourceLocale);
 
       const existingCount = Object.keys(existingMessages).length;
       logger.info(`${existingCount} clé${existingCount > 1 ? 's' : ''} existante${existingCount > 1 ? 's' : ''} dans ${config.sourceLocale}.json`);
 
-      // 1. Scan
       logger.step('Scan du projet');
-      const allStrings = await scanProject(projectRoot, { ignorePatterns: config.ignore });
+      const analysis = await analyzeProject({
+        projectRoot,
+        ignorePatterns: config.ignore,
+        existingMessages,
+        includeModuleScope: options.moduleScope,
+      });
 
-      if (allStrings.length > 0) {
-        // Grouper par fichier pour la détection module-scope
-        const stringsByFile = new Map<string, typeof allStrings>();
-        for (const s of allStrings) {
-          const list = stringsByFile.get(s.filePath) ?? [];
-          list.push(s);
-          stringsByFile.set(s.filePath, list);
-        }
-
-        // Filtrage module-scope si --no-module-scope
-        let excludedModuleScope = 0;
-        let strings = allStrings;
-        if (!options.moduleScope) {
-          const moduleScopeSet = detectModuleScopeValues(stringsByFile);
-          excludedModuleScope = moduleScopeSet.size;
-          strings = allStrings.filter(s => !moduleScopeSet.has(s.value));
-          if (excludedModuleScope > 0) {
-            logger.dim(`${excludedModuleScope} string${excludedModuleScope > 1 ? 's' : ''} module-scope exclue${excludedModuleScope > 1 ? 's' : ''} (--no-module-scope)`);
-          }
-        }
-
-        const scanEntries = groupByFile(strings);
-        const fileCount = scanEntries.length;
-        logger.success(`${strings.length} string${strings.length > 1 ? 's' : ''} trouvée${strings.length > 1 ? 's' : ''} dans ${fileCount} fichier${fileCount > 1 ? 's' : ''}`);
-        logFileList(scanEntries, projectRoot, n => `${n} string${n > 1 ? 's' : ''}`);
+      if (analysis.selectedStrings.length > 0) {
+        reportAnalysisSummary(projectRoot, analysis);
         logger.dim('Mode extract — les fichiers source ne seront pas modifiés');
-
-        // 2. Générer les clés — merge stable avec les existantes
-        logger.step('Mise à jour des clés');
-        const genResult = await generateMessages(strings, {
-          sourceLocale: config.sourceLocale,
-          messagesDir: config.messagesDir,
-          existingMessages,
-        });
-
-        if (genResult.newCount > 0) {
-          logger.success(`${genResult.newCount} nouvelle${genResult.newCount > 1 ? 's' : ''} clé${genResult.newCount > 1 ? 's' : ''} ajoutée${genResult.newCount > 1 ? 's' : ''} → ${relative(projectRoot, genResult.outputPath)}`);
-          logger.dim(`Total : ${Object.keys(genResult.messages).length} clés`);
-        } else {
-          logger.success(`Aucune nouvelle clé — ${Object.keys(genResult.messages).length} clés existantes inchangées`);
-        }
-
-        // Détection + rapport module-scope (sauf si --no-module-scope)
-        if (options.moduleScope) {
-          const tsProject = new Project({ skipAddingFilesFromTsConfig: true, skipFileDependencyResolution: true });
-          let totalModuleScope = 0;
-          const moduleScopeByFile = new Map<string, Array<{ value: string; key: string; line: number }>>();
-          for (const filePath of stringsByFile.keys()) {
-            const sourceFile = tsProject.addSourceFileAtPath(filePath);
-            const matches = findModuleScopeStrings(sourceFile, genResult.keyMap);
-            if (matches.length > 0) {
-              moduleScopeByFile.set(filePath, matches);
-              totalModuleScope += matches.length;
-            }
-          }
-          if (totalModuleScope > 0) {
-            logger.warn(`${totalModuleScope} string${totalModuleScope > 1 ? 's' : ''} module-scope (traductions dans le JSON, intégration manuelle requise)`);
-            for (const [file, items] of moduleScopeByFile) {
-              const rel = relative(projectRoot, file);
-              for (const item of items) {
-                const preview = item.value.length > 50 ? item.value.slice(0, 50) + '…' : item.value;
-                logger.dim(`  ${rel}:${item.line}  "${preview}"  →  ${item.key}`);
-              }
-            }
-            logger.dim('  → Déplacez ces const dans vos composants pour utiliser t("clé")');
-          }
-        } else if (excludedModuleScope > 0) {
-          logger.dim(`${excludedModuleScope} string${excludedModuleScope > 1 ? 's' : ''} module-scope ignorée${excludedModuleScope > 1 ? 's' : ''}`);
-        }
       } else {
         logger.success('Toutes les strings sont déjà dans les fichiers de traduction');
       }
 
-      // 3. Traduction incrémentale — toujours exécutée
-      logger.step('Synchronisation des traductions');
-      const transResult = await translateMessages({
+      const plan = await planProjectChanges({
+        projectRoot,
+        analysis,
         sourceLocale: config.sourceLocale,
         targetLocales: config.targetLocales,
         messagesDir: config.messagesDir,
+        existingMessages,
         apiKey,
+        shouldRewrite: false,
+        shouldTranslate: true,
+        shouldInject: Boolean(options.inject),
+        switcherOnly: Boolean(options.switcher && !options.inject),
       });
 
-      if (transResult.totalTranslated > 0) {
-        logger.success(`${transResult.totalTranslated} string${transResult.totalTranslated > 1 ? 's' : ''} traduite${transResult.totalTranslated > 1 ? 's' : ''}`);
-      } else {
-        logger.success('Toutes les traductions sont à jour');
-      }
-      if (transResult.skipped.length > 0) {
-        logger.dim(`Déjà à jour : ${transResult.skipped.join(', ')}`);
-      }
-
-      // 4. Configuration Next.js optionnelle
-      if (options.inject) {
-        logger.step('Configuration Next.js');
-        const injResult = await injectAll({
-          projectRoot,
-          locales: [config.sourceLocale, ...config.targetLocales],
-          defaultLocale: config.sourceLocale,
-          silent: true,
-        });
-        logInjectResult(injResult);
-      } else if (options.switcher) {
-        logger.step('Injection du Language Switcher');
-        try {
-          const r = await injectLanguageSwitcher(projectRoot, { silent: true });
-          if (r.skipped) logger.dim('LanguageSwitcher — déjà présent');
-          else           logger.success('LanguageSwitcher créé');
-        } catch (e) {
-          logger.warn(`LanguageSwitcher — ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
+      const result = await applyProjectChanges(plan, projectRoot);
+      reportRunResult(projectRoot, result);
 
       logger.blank();
       logger.success('Synchronisation terminée — aucun fichier source modifié');

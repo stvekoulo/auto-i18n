@@ -20,6 +20,42 @@ const ROOT_ONLY = new Set([
   'not-found.tsx', 'not-found.jsx',
 ]);
 
+const ROUTE_FILE_BASENAMES = new Set([
+  'page',
+  'layout',
+  'template',
+  'loading',
+  'error',
+  'default',
+  'route',
+]);
+
+const PRESERVED_ROUTE_DIRS = new Set([
+  'api',
+  'components',
+  'ui',
+  'lib',
+  'hooks',
+  'utils',
+  'providers',
+  'styles',
+  'assets',
+  'fonts',
+  'images',
+]);
+
+function shouldMoveEntry(entryName: string, isDirectory: boolean): boolean {
+  if (ROOT_ONLY.has(entryName) || entryName === '[locale]') return false;
+
+  if (isDirectory) {
+    return !PRESERVED_ROUTE_DIRS.has(entryName);
+  }
+
+  const extension = extname(entryName);
+  const baseName = entryName.slice(0, Math.max(0, entryName.length - extension.length));
+  return ROUTE_FILE_BASENAMES.has(baseName);
+}
+
 export async function injectLocaleStructure(
   projectRoot: string,
   locales: string[],
@@ -65,8 +101,7 @@ export async function injectLocaleStructure(
   const movedFiles: string[] = [];
 
   for (const entry of entries) {
-    if (entry.name === '[locale]') continue;
-    if (ROOT_ONLY.has(entry.name)) continue;
+    if (!shouldMoveEntry(entry.name, entry.isDirectory())) continue;
 
     const src = join(appDir, entry.name);
     const dest = join(localeDir, entry.name);
@@ -80,8 +115,6 @@ export async function injectLocaleStructure(
   const switcherImportPath = useSrc ? '../../components/LanguageSwitcher' : '../../components/LanguageSwitcher';
 
   await writeFile(localeLayoutPath, buildLocaleLayout(routingImportPath, switcherImportPath), 'utf-8');
-
-  await rewriteRootLayout(layoutPath);
 
   if (!options.silent) {
     console.log(`  ✓ app/[locale]/ créé — ${movedFiles.length} entrée(s) déplacée(s)`);
@@ -156,61 +189,4 @@ export default async function LocaleLayout({
   );
 }
 `;
-}
-
-async function rewriteRootLayout(layoutPath: string): Promise<void> {
-  await copyFile(layoutPath, `${layoutPath}.backup`);
-
-  const content = await readFile(layoutPath, 'utf-8');
-
-  const cssImports: string[] = [];
-  const fontImports: string[] = [];
-  const otherImports: string[] = [];
-
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (/^import\s+['"]\..*\.css['"]/.test(trimmed) || /^import\s+['"]\.\/globals/.test(trimmed)) {
-      cssImports.push(trimmed);
-    } else if (/from\s+['"]next\/font/.test(trimmed) || /from\s+['"]@next\/font/.test(trimmed)) {
-      fontImports.push(trimmed);
-    }
-  }
-
-  const fontDeclRegex = /^const\s+\w+\s*=\s*\w+\(\{[^}]*\}\);?\s*$/gm;
-  const fontDecls: string[] = [];
-  let match;
-  while ((match = fontDeclRegex.exec(content)) !== null) {
-    fontDecls.push(match[0]);
-  }
-
-  let bodyTag = '<body>';
-  const bodyTagMatch = content.match(/<body[^>]*>/);
-  if (bodyTagMatch) {
-    bodyTag = bodyTagMatch[0];
-  }
-
-  const imports = [
-    ...cssImports,
-    ...fontImports,
-  ].filter(Boolean);
-
-  const importsStr = imports.length > 0 ? imports.join('\n') + '\n\n' : '';
-  const fontDeclsStr = fontDecls.length > 0 ? fontDecls.join('\n') + '\n\n' : '';
-
-  const newContent = `${importsStr}${fontDeclsStr}export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  return (
-    <html suppressHydrationWarning>
-      ${bodyTag}
-        {children}
-      </body>
-    </html>
-  );
-}
-`;
-
-  await writeFile(layoutPath, newContent, 'utf-8');
 }

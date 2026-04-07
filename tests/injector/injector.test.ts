@@ -370,17 +370,55 @@ describe('src/ directory support', () => {
   });
 });
 
-describe('suppressHydrationWarning', () => {
-  it('le root layout réécrit contient suppressHydrationWarning sur <html>', async () => {
+describe('injectLocaleStructure', () => {
+  it('préserve le root layout existant au lieu de le réécrire', async () => {
     const dir = await makeTmpDir();
     await mkdir(join(dir, 'app'), { recursive: true });
-    await writeFile(join(dir, 'app', 'layout.tsx'), BASIC_LAYOUT);
+    const complexLayout = `import Script from 'next/script';
+
+export const metadata = {
+  title: 'Demo',
+};
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="fr">
+      <body className="app-shell">
+        <Script src="/demo.js" />
+        <div className="provider">{children}</div>
+      </body>
+    </html>
+  );
+}
+`;
+    await writeFile(join(dir, 'app', 'layout.tsx'), complexLayout);
     await writeFile(join(dir, 'app', 'page.tsx'), `export default function Page() { return <p>Hello</p>; }`);
 
-    await injectLocaleStructure(dir, ['fr', 'en'], 'fr', { silent: true });
+    const result = await injectLocaleStructure(dir, ['fr', 'en'], 'fr', { silent: true });
 
     const content = await readFile(join(dir, 'app', 'layout.tsx'), 'utf-8');
-    expect(content).toContain('suppressHydrationWarning');
+    expect(result.modified).toBe(true);
+    expect(content).toBe(complexLayout);
+    expect(content).toContain('metadata');
+    expect(content).toContain('<Script src="/demo.js" />');
+  });
+
+  it('déplace les routes mais laisse les dossiers structurels ambiguës en place', async () => {
+    const dir = await makeTmpDir();
+    await mkdir(join(dir, 'app', 'dashboard'), { recursive: true });
+    await mkdir(join(dir, 'app', 'components'), { recursive: true });
+    await writeFile(join(dir, 'app', 'layout.tsx'), BASIC_LAYOUT);
+    await writeFile(join(dir, 'app', 'page.tsx'), `export default function Page() { return <p>Home</p>; }`);
+    await writeFile(join(dir, 'app', 'dashboard', 'page.tsx'), `export default function Dashboard() { return <p>Dashboard</p>; }`);
+    await writeFile(join(dir, 'app', 'components', 'Card.tsx'), `export function Card() { return <div>Card</div>; }`);
+
+    const result = await injectLocaleStructure(dir, ['fr', 'en'], 'fr', { silent: true });
+
+    expect(result.movedFiles).toContain('page.tsx');
+    expect(result.movedFiles).toContain('dashboard');
+    await expect(access(join(dir, 'app', '[locale]', 'page.tsx'))).resolves.toBeUndefined();
+    await expect(access(join(dir, 'app', '[locale]', 'dashboard', 'page.tsx'))).resolves.toBeUndefined();
+    await expect(access(join(dir, 'app', 'components', 'Card.tsx'))).resolves.toBeUndefined();
   });
 });
 

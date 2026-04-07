@@ -1,7 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { shouldIgnore } from '../../src/scanner/filters';
+import { getIgnoreReason, shouldIgnore } from '../../src/scanner/filters';
 
 describe('shouldIgnore', () => {
+  it('retourne une raison stable pour une valeur technique ignorée', () => {
+    expect(getIgnoreReason('42')).toBe('numeric');
+    expect(getIgnoreReason('flex items-center')).toBe('css_class_string');
+  });
 
   describe('strings vides', () => {
     it('ignore une string vide', () => {

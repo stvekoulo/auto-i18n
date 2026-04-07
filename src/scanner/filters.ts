@@ -2,6 +2,26 @@ export interface FilterOptions {
   additionalBlacklist?: string[];
 }
 
+export type IgnoreReason =
+  | 'empty'
+  | 'numeric'
+  | 'css_value'
+  | 'hex_color'
+  | 'css_function_color'
+  | 'absolute_url'
+  | 'protocol_url'
+  | 'protocol_relative_url'
+  | 'route'
+  | 'mime_type'
+  | 'env_var'
+  | 'numeric_with_affix'
+  | 'symbol_or_emoji'
+  | 'technical_keyword'
+  | 'camel_case_identifier'
+  | 'single_css_token'
+  | 'css_class_string'
+  | 'blacklist';
+
 /**
  * Mots-clés techniques qui ne doivent pas être traduits.
  */
@@ -142,27 +162,31 @@ function isSingleCssToken(value: string): boolean {
 /**
  * Retourne `true` si la string doit être ignorée.
  */
-export function shouldIgnore(value: string, options?: FilterOptions): boolean {
+export function getIgnoreReason(value: string, options?: FilterOptions): IgnoreReason | null {
   const trimmed = value.trim();
 
-  if (!trimmed) return true;
-  if (NUMERIC_RE.test(trimmed)) return true;
-  if (CSS_VALUE_RE.test(trimmed)) return true;
-  if (HEX_COLOR_RE.test(trimmed)) return true;
-  if (CSS_FUNC_COLOR_RE.test(trimmed)) return true;
-  if (ABSOLUTE_URL_RE.test(trimmed)) return true;
-  if (PROTOCOL_URL_RE.test(trimmed)) return true;
-  if (PROTOCOL_RELATIVE_RE.test(trimmed)) return true;
-  if (trimmed.length > 1 && ROUTE_RE.test(trimmed)) return true;
-  if (MIME_TYPE_RE.test(trimmed)) return true;
-  if (ENV_VAR_RE.test(trimmed)) return true;
-  if (NUMERIC_WITH_AFFIX_RE.test(trimmed)) return true;
-  if (isSymbolOrEmojiOnly(trimmed)) return true;
-  if (TECHNICAL_KEYWORDS.has(trimmed)) return true;
-  if (isCamelCaseIdentifier(trimmed)) return true;
-  if (isSingleCssToken(trimmed)) return true;
-  if (isCssClassString(trimmed)) return true;
-  if (options?.additionalBlacklist?.includes(trimmed)) return true;
+  if (!trimmed) return 'empty';
+  if (NUMERIC_RE.test(trimmed)) return 'numeric';
+  if (CSS_VALUE_RE.test(trimmed)) return 'css_value';
+  if (HEX_COLOR_RE.test(trimmed)) return 'hex_color';
+  if (CSS_FUNC_COLOR_RE.test(trimmed)) return 'css_function_color';
+  if (ABSOLUTE_URL_RE.test(trimmed)) return 'absolute_url';
+  if (PROTOCOL_URL_RE.test(trimmed)) return 'protocol_url';
+  if (PROTOCOL_RELATIVE_RE.test(trimmed)) return 'protocol_relative_url';
+  if (trimmed.length > 1 && ROUTE_RE.test(trimmed)) return 'route';
+  if (MIME_TYPE_RE.test(trimmed)) return 'mime_type';
+  if (ENV_VAR_RE.test(trimmed)) return 'env_var';
+  if (NUMERIC_WITH_AFFIX_RE.test(trimmed)) return 'numeric_with_affix';
+  if (isSymbolOrEmojiOnly(trimmed)) return 'symbol_or_emoji';
+  if (TECHNICAL_KEYWORDS.has(trimmed)) return 'technical_keyword';
+  if (isCamelCaseIdentifier(trimmed)) return 'camel_case_identifier';
+  if (isSingleCssToken(trimmed)) return 'single_css_token';
+  if (isCssClassString(trimmed)) return 'css_class_string';
+  if (options?.additionalBlacklist?.includes(trimmed)) return 'blacklist';
 
-  return false;
+  return null;
+}
+
+export function shouldIgnore(value: string, options?: FilterOptions): boolean {
+  return getIgnoreReason(value, options) !== null;
 }

@@ -8,15 +8,18 @@
   <a href="https://github.com/stvekoulo/next-auto-i18n/blob/main/LICENSE"><img src="https://img.shields.io/npm/l/next-auto-i18n" alt="license"></a>
 </p>
 
-<p align="center"><strong>Translate your Next.js project automatically in under 5 minutes.</strong></p>
+<p align="center"><strong>Conservative i18n automation for Next.js App Router projects.</strong></p>
 
-next-auto-i18n is a CLI tool that fully automates internationalization (i18n) in existing Next.js projects. It scans your codebase via AST, extracts translatable strings, translates them through DeepL, rewrites your components to use `t("key")` calls, and configures [next-intl](https://next-intl-docs.vercel.app/) — all in a single command.
+> This document complements the README. The README is the shortest source of truth for public guarantees. When behavior differs between examples and real project constraints, the engine always prefers safe refusal or manual guidance over risky mutation.
+
+next-auto-i18n is a CLI tool for existing Next.js projects. It scans the codebase via AST, extracts translatable strings, translates them through DeepL, rewrites safe cases automatically, and applies conservative `next-intl` injection when the project structure is compatible.
 
 ---
 
 ## Table of Contents
 
 - [Why next-auto-i18n?](#why-next-auto-i18n)
+- [Compatibility Matrix](#compatibility-matrix)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -31,6 +34,49 @@ next-auto-i18n is a CLI tool that fully automates internationalization (i18n) in
 - [Contributing](#contributing)
 - [Roadmap](#roadmap)
 - [License](#license)
+
+---
+
+## Compatibility Matrix
+
+### Project structure
+
+| Target | Status | Notes |
+|---|---|---|
+| `app/` | Supported | Primary target |
+| `src/app/` | Supported | Scanner and injectors handle both roots |
+| `components/`, `ui/`, `features/`, `shared/` | Supported for scan | Included in the default scan scope |
+| custom monorepo layouts | Partial | Depends on actual source tree and ignore rules |
+
+### Rewriting behavior
+
+| Case | Status | Behavior |
+|---|---|---|
+| simple JSX text | Supported | auto rewrite |
+| supported JSX attributes | Supported | auto rewrite |
+| template literals | Supported | generated key + rewrite when safe |
+| module-scope strings | Partial | translated, but often manual integration |
+| ambiguous JSX spacing | Conservative | skipped with diagnostics |
+| unparseable source file | Blocked | file skipped, warning emitted |
+
+### Next.js injection
+
+| Target | Status | Behavior |
+|---|---|---|
+| `next.config.*` | Supported | inject if compatible, otherwise block |
+| `middleware.ts` / `proxy.ts` | Supported | created or skipped if already present |
+| `i18n/routing.ts` | Supported | created or skipped |
+| `i18n/request.ts` | Supported | created or skipped |
+| `LanguageSwitcher` | Supported | can be injected independently |
+| `app/[locale]/` restructuring | Conservative | refused on complex root layouts |
+
+### Runtime guarantees
+
+| Situation | Outcome |
+|---|---|
+| safe project shape | full or near-full automation |
+| mixed safe and unsafe operations | partial run with explicit manual actions |
+| risky mutation candidate | skipped instead of forced |
 
 ---
 

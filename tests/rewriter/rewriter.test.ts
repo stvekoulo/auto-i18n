@@ -3,6 +3,7 @@ import { mkdtemp, writeFile, readFile, rm, access } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { parseSource } from '../../src/scanner/ast-parser';
+import { buildOccurrenceId, extractStrings } from '../../src/scanner/string-extractor';
 import { rewriteJsxText, rewriteNoSubstitutionTemplateLiterals, rewriteTemplateExpressions } from '../../src/rewriter/jsx-rewriter';
 import { rewriteAttributes } from '../../src/rewriter/attr-rewriter';
 import { rewriteStringLiterals, findModuleScopeStrings } from '../../src/rewriter/const-rewriter';
@@ -68,6 +69,35 @@ describe('rewriteJsxText', () => {
     const keyMap = new Map([['Hello', 'hello']]);
     const count = rewriteJsxText(sf, keyMap);
     expect(count).toBe(1); // seul "Hello" est remplacé, pas les espaces inter-éléments
+  });
+
+  it('préserve les espaces visibles autour d’un élément inline', () => {
+    const sf = src(`
+      export default function Page() {
+        return <p>Bonjour <strong>Jean</strong></p>;
+      }
+    `);
+    const keyMap = new Map([['Bonjour', 'bonjour']]);
+    const count = rewriteJsxText(sf, keyMap);
+    expect(count).toBe(1);
+    expect(sf.getFullText()).toContain('{t("bonjour")}{" "}<strong>Jean</strong>');
+  });
+
+  it('ignore les séquences JSX ambiguës avec retours à la ligne pour éviter de casser le spacing', () => {
+    const sf = src(`
+      export default function Page() {
+        return (
+          <p>
+            Bonjour
+            <strong>Jean</strong>
+          </p>
+        );
+      }
+    `);
+    const keyMap = new Map([['Bonjour', 'bonjour']]);
+    const count = rewriteJsxText(sf, keyMap);
+    expect(count).toBe(0);
+    expect(sf.getFullText()).toContain('Bonjour');
   });
 });
 
@@ -634,5 +664,31 @@ describe('findModuleScopeStrings', () => {
     expect(result[0].value).toBe('Salut');
     expect(result[0].key).toBe('salut');
     expect(result[0].line).toBe(1);
+  });
+
+  it('permet un filtrage par occurrence exacte sans exclure la même valeur dans un composant', () => {
+    const filePath = 'Component.tsx';
+    const sf = src(`
+      const nav = ["Accueil"];
+      export default function Page() {
+        return <p>Accueil</p>;
+      }
+    `);
+    const extracted = extractStrings(sf, filePath);
+    const keyMap = new Map([['Accueil', 'accueil']]);
+    const moduleScope = findModuleScopeStrings(sf, keyMap);
+    const moduleScopeIds = new Set(
+      moduleScope.map(item => buildOccurrenceId({
+        filePath,
+        line: item.line,
+        column: item.column,
+        value: item.value,
+      })),
+    );
+
+    const kept = extracted.filter(item => !moduleScopeIds.has(buildOccurrenceId(item)));
+
+    expect(kept.some(item => item.type === 'jsx-text' && item.value === 'Accueil')).toBe(true);
+    expect(kept.some(item => item.type === 'string-literal' && item.value === 'Accueil')).toBe(false);
   });
 });

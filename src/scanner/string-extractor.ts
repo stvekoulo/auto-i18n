@@ -22,6 +22,17 @@ export interface ExtractedString {
   variables?: string[];
 }
 
+export interface StringOccurrence {
+  filePath: string;
+  line: number;
+  column: number;
+  value: string;
+}
+
+export function buildOccurrenceId(occurrence: StringOccurrence): string {
+  return `${occurrence.filePath}:${occurrence.line}:${occurrence.column}:${occurrence.value}`;
+}
+
 export const TRANSLATABLE_ATTRIBUTES = new Set([
   'placeholder',
   'alt',

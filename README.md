@@ -4,70 +4,89 @@
 ![npm downloads](https://img.shields.io/npm/dm/next-auto-i18n)
 ![license](https://img.shields.io/npm/l/next-auto-i18n)
 
-> Automatise l'internationalisation d'un projet React / Next.js en une seule commande.
+> CLI d’internationalisation pour projets Next.js App Router, avec scan AST, génération de messages, traduction DeepL, réécriture prudente et injection `next-intl`.
 
-**next-auto-i18n** scanne votre code, extrait les strings traduisibles, les traduit via DeepL, et reconfigure votre projet pour utiliser [next-intl](https://next-intl-docs.vercel.app/) — sans intervention manuelle.
+`next-auto-i18n` scanne votre code, extrait les strings traduisibles, génère les clés i18n, remplit les fichiers `messages/*.json`, traduit via DeepL et applique les mutations sûres du projet. Quand une réécriture ou une injection n’est pas jugée fiable, le CLI s’arrête proprement sur cette cible et renvoie une action manuelle recommandée au lieu de modifier silencieusement votre code.
 
-**[Documentation complete](./DOCUMENTATION.md)**
+La version actuelle est pensée pour être **utile en automatique**, mais aussi **conservatrice** sur les cas ambigus.
+
+Le complément de documentation se trouve dans [DOCUMENTATION.md](./DOCUMENTATION.md).
 
 ## Installation
 
 ```bash
-npm install -D next-auto-i18n
+npm install -D next-auto-i18n next-intl
 ```
 
-Ou directement via npx :
+Ou directement :
 
 ```bash
 npx next-auto-i18n init
 ```
 
-## Pre-requis
+## Prérequis
 
-- Node.js >= 18
-- Un projet Next.js (App Router)
-- Une cle API DeepL ([inscription gratuite](https://www.deepl.com/pro-api))
+- Node.js `>= 18`
+- Un projet Next.js avec App Router
+- `next-intl` installé dans le projet
+- Une clé API DeepL
 
-## Utilisation rapide
+## Ce que le package fait vraiment
+
+- Scan AST des fichiers `.tsx`, `.jsx`, `.ts`, `.js`
+- Extraction des strings JSX, attributs traduisibles et template literals
+- Génération incrémentale des clés dans `messages/<locale>.json`
+- Traduction DeepL avec validation des placeholders
+- Réécriture automatique des cas sûrs
+- Détection des cas risqués : module-scope, JSX ambigu, fichiers non parsables
+- Injection Next.js conservatrice : applique ce qui est sûr, bloque ce qui doit rester manuel
+- Reporting structuré : `success`, `partial`, `failed`, diagnostics et actions manuelles
+
+## Ce que le package ne promet pas
+
+- Il ne réécrit pas tous les cas JSX complexes.
+- Il ne force pas la restructuration `app/[locale]` si le layout racine paraît trop personnalisé.
+- Il ne “corrige pas quand même” un projet ambigu.
+- Il ne garantit pas un projet 100% migré sans validation humaine sur les cas avancés.
+
+## Démarrage rapide
 
 ```bash
 npx next-auto-i18n init
 ```
 
-Le CLI vous guide interactivement :
+Le CLI vous guide sur :
 
-1. Langue source (ex: `fr`)
-2. Langues cibles (ex: `en, es, de`)
-3. Cle API DeepL
+1. la locale source
+2. les locales cibles
+3. la clé DeepL
 
-Et en quelques secondes :
+Puis il :
 
-- Scanne tous vos composants via AST
-- Genere `messages/fr.json` avec les cles i18n
-- Traduit automatiquement vers chaque langue cible
-- Installe `next-intl` automatiquement si absent
-- Remplace les strings en dur par `t("cle")`
-- Configure `next.config`, `middleware.ts` (ou `proxy.ts` sur Next.js 16+)
-- Genere `i18n/routing.ts` + `i18n/request.ts` (requis pour les Server Components)
-- Cree la structure `app/[locale]/` requise par le App Router next-intl
-- Injecte un **Language Switcher flottant** (personnalisable) pour changer de langue
-- Detecte les strings dans les `const` module-scope et vous guide pour les integrer manuellement
+- crée `auto-i18n.config.json`
+- alimente `messages/<sourceLocale>.json`
+- traduit les locales cibles
+- réécrit les fichiers sûrs
+- tente les injections Next.js sûres
+- signale clairement les parties à traiter manuellement
 
 ## Commandes
 
 ### `next-auto-i18n init`
 
-Initialisation complete du projet.
+Initialise le projet : scan, messages, traduction, réécriture, injection.
 
 ```bash
-next-auto-i18n init              # mode interactif
-next-auto-i18n init --dry-run    # preview sans modification
-next-auto-i18n init --locale en,es,de  # langues cibles en ligne de commande
+next-auto-i18n init
+next-auto-i18n init --dry-run
+next-auto-i18n init --locale en,es,de
 ```
+
+`--dry-run` montre d’abord un aperçu et demande confirmation avant d’appliquer.
 
 ### `next-auto-i18n sync`
 
-Rescanne le projet, integre les nouvelles strings et synchronise toutes les traductions (mode incrementiel — les cles existantes sont preservees).
+Rescanne le projet, fusionne les nouvelles strings et synchronise les traductions sans régénérer toute la base.
 
 ```bash
 next-auto-i18n sync
@@ -75,33 +94,30 @@ next-auto-i18n sync
 
 ### `next-auto-i18n extract`
 
-Traduit toutes les strings et genere un **guide d'integration Markdown** — sans modifier aucun fichier source.
+Génère ou met à jour les fichiers `messages/*.json`, traduit, puis produit un guide Markdown sans modifier les fichiers source applicatifs.
 
 ```bash
-next-auto-i18n extract                           # guide genere dans i18n-guide.md
-next-auto-i18n extract --out docs/i18n-guide.md  # chemin personnalise
-next-auto-i18n extract --locale en,es            # langues cibles (si pas de config)
-next-auto-i18n extract --inject                  # configure aussi Next.js (next.config, middleware, routing...)
-next-auto-i18n extract --switcher                # injecte uniquement le Language Switcher
-next-auto-i18n extract --no-module-scope         # ignore les strings dans les const module-scope
+next-auto-i18n extract
+next-auto-i18n extract --out docs/i18n-guide.md
+next-auto-i18n extract --inject
+next-auto-i18n extract --switcher
+next-auto-i18n extract --no-module-scope
 ```
-
-Le guide genere inclut : exemples d'utilisation Client/Server Component, tableaux par fichier (ligne, type, cle, code a copier-coller), section dedicee aux strings module-scope.
 
 ### `next-auto-i18n extract sync`
 
-Rescanne le projet, integre les nouvelles strings et synchronise les traductions — **sans réécrire les fichiers source**. Meme merge stable que `sync`.
+Version incrémentale de `extract`.
 
 ```bash
-next-auto-i18n extract sync                  # rescan + mise a jour JSON + traduction
-next-auto-i18n extract sync --inject         # + configure Next.js apres synchronisation
-next-auto-i18n extract sync --switcher       # + injecte le Language Switcher
-next-auto-i18n extract sync --no-module-scope  # exclut les strings module-scope
+next-auto-i18n extract sync
+next-auto-i18n extract sync --inject
+next-auto-i18n extract sync --switcher
+next-auto-i18n extract sync --no-module-scope
 ```
 
 ### `next-auto-i18n add-locale <locale>`
 
-Ajoute une nouvelle langue et traduit toutes les cles existantes.
+Ajoute une locale cible, traduit les clés existantes et met à jour l’infrastructure Next.js avec les mêmes garde-fous que le reste du moteur.
 
 ```bash
 next-auto-i18n add-locale ar
@@ -109,15 +125,91 @@ next-auto-i18n add-locale ar
 
 ### `next-auto-i18n missing`
 
-Affiche les cles non traduites par langue.
+Affiche les clés manquantes par locale cible.
 
 ```bash
 next-auto-i18n missing
 ```
 
+## Modèle de sécurité
+
+- `.env.local` et `*.backup` sont ajoutés au `.gitignore`
+- les placeholders de traduction sont validés avant écriture
+- les réécritures ambiguës sont exclues au lieu d’être appliquées de force
+- les injecteurs Next.js retournent `applicable`, `already_present`, `manual_required` ou `blocked`
+- le run global peut finir en `partial` avec actions manuelles listées
+
+## Compatibilité
+
+### Structures de projet
+
+| Structure | Statut | Notes |
+|---|---|---|
+| `app/` | supporté | cas principal |
+| `src/app/` | supporté | supporté par le scanner et les injecteurs |
+| `components/`, `ui/`, `features/`, `shared/` | supporté au scan | scan AST étendu |
+| monorepo avec conventions très custom | partiel | dépend de la structure réellement scannée |
+
+### Réécriture AST
+
+| Cas | Statut | Comportement |
+|---|---|---|
+| texte JSX simple | supporté | réécriture automatique |
+| attributs traduisibles | supporté | réécriture automatique |
+| template literals simples | supporté | génération de clé + réécriture |
+| strings module-scope | partiel | traduites, mais intégration souvent manuelle |
+| JSX inline ambigu ou espaces sensibles | conservateur | exclu de la réécriture auto |
+| fichier non parsable | bloqué | diagnostic remonté, aucune mutation |
+
+### Injection Next.js
+
+| Cible | Statut | Comportement |
+|---|---|---|
+| `next.config.*` | supporté | injection si sûre, sinon blocage explicite |
+| `middleware.ts` / `proxy.ts` | supporté | création prudente selon contexte |
+| `i18n/routing.ts` | supporté | création ou skip si déjà présent |
+| `i18n/request.ts` | supporté | création ou skip si déjà présent |
+| `LanguageSwitcher` | supporté | injecteur isolé possible |
+| `app/[locale]/` | conservateur | refus explicite sur layout complexe |
+
+### Versions et dépendances
+
+| Élément | Statut |
+|---|---|
+| Node.js 18+ | requis |
+| Next.js App Router | requis |
+| `next-intl` | requis |
+| DeepL Free / Pro | supporté |
+
+## Exemples de comportement
+
+### Cas sûr
+
+```tsx
+<p>Bonjour</p>
+```
+
+devient :
+
+```tsx
+<p>{t("bonjour")}</p>
+```
+
+### Cas module-scope
+
+```tsx
+const items = ['Accueil', 'Contact'];
+```
+
+Le package peut générer les messages, mais laissera une action manuelle plutôt que d’injecter `t()` à un endroit où il n’est pas accessible.
+
+### Cas layout complexe
+
+Si le layout racine contient de la logique sensible ou certains patterns considérés à risque, l’injection de `app/[locale]` est marquée `manual required`. Les autres injections sûres peuvent continuer.
+
 ## Configuration
 
-Le fichier `auto-i18n.config.json` est genere automatiquement :
+Le fichier `auto-i18n.config.json` est généré automatiquement :
 
 ```json
 {
@@ -130,100 +222,20 @@ Le fichier `auto-i18n.config.json` est genere automatiquement :
 }
 ```
 
-La cle API est stockee dans `.env.local` (jamais commitee) :
+La clé API est stockée dans `.env.local` :
 
 ```bash
-AUTO_I18N_DEEPL_KEY=votre-cle-ici
+AUTO_I18N_DEEPL_KEY=votre-cle
 ```
 
-## Fonctionnement
-
-### 1. Scan AST
-
-Analyse les fichiers `.tsx`, `.jsx`, `.ts`, `.js` via [ts-morph](https://ts-morph.com/) :
-
-- Texte JSX : `<p>Bonjour</p>`
-- Attributs : `placeholder="Rechercher..."`
-- Template literals : `` `Bienvenue ${name}` ``
-
-Ignore automatiquement les classNames, imports, strings techniques, fichiers de config.
-
-### 2. Generation des cles
-
-Chaque string devient une cle i18n normalisee :
-
-| String | Cle |
-|--------|-----|
-| `Bonjour` | `bonjour` |
-| `Ajouter au panier` | `ajouter_au_panier` |
-| `` `Bienvenue ${name}` `` | `bienvenue_name` |
-
-### 3. Traduction DeepL
-
-- Appel batch avec protection des placeholders (`{name}` → `<x>name</x>`)
-- Mode incrementiel : seules les cles manquantes sont traduites
-- Compatible DeepL Free (500k chars/mois) et Pro
-- Restauration automatique des entites HTML (`&apos;`, `&#39;`, etc.)
-
-### 4. Reecriture des composants
-
-| Avant | Apres |
-|-------|-------|
-| `<p>Bonjour</p>` | `<p>{t("bonjour")}</p>` |
-| `placeholder="Chercher"` | `placeholder={t("chercher")}` |
-| `` `Salut ${name}` `` | `t("salut_name", { name })` |
-
-- Server Components : `await getTranslations()` (next-intl/server)
-- Client Components : `useTranslations()` (next-intl)
-- Les strings dans des `const` module-scope (hors composant) sont **detectees et signalees** avec le fichier + numero de ligne — elles sont traduites dans les JSON mais pas reecrites automatiquement (voir section suivante)
-
-### Strings module-scope
-
-Les `const` declarees au niveau module (hors fonction/composant) ne peuvent pas utiliser `t()` directement. next-auto-i18n les detecte, les traduit, et vous indique quoi faire :
-
-```tsx
-// ❌ avant — const module-scope, t() inaccessible ici
-const items = ['Accueil', 'A propos', 'Contact'];
-
-// ✅ apres — deplacez la const dans le composant
-export function Nav() {
-  const t = useTranslations();
-  const items = [t('accueil'), t('a_propos'), t('contact')];
-}
-```
-
-Utilisez `next-auto-i18n extract` pour obtenir un guide complet avec tous les cas a corriger.
-
-### 5. Injection config Next.js
-
-- `next.config` : wrappe avec `createNextIntlPlugin`
-- `middleware.ts` / `proxy.ts` : routing i18n (proxy.ts si Next.js >= 16)
-- `i18n/routing.ts` : definit les locales
-- `i18n/request.ts` : configuration `getRequestConfig` pour les Server Components
-- `app/[locale]/layout.tsx` : cree avec `NextIntlClientProvider` + `LanguageSwitcher`
-- `app/[locale]/page.tsx` : la page existante est deplacee ici
-- `app/layout.tsx` : simplifie en HTML shell (`<html><body>{children}</body></html>`)
-
-### 6. Language Switcher
-
-Un composant flottant est automatiquement genere dans `components/LanguageSwitcher.tsx` et inclus dans `app/[locale]/layout.tsx` (dans le provider). Personnalisable via `SWITCHER_CONFIG` : position, theme (light/dark), couleur d'accent, offset.
-
-## Securite
-
-- La cle API n'est **jamais** dans le code source
-- `.env.local` et `*.backup` sont ajoutes au `.gitignore`
-- Mode `--dry-run` pour verifier avant modification
-- Backups automatiques (`*.backup`) avant chaque reecriture
-
-## Developpement
+## Développement
 
 ```bash
-git clone https://github.com/stvekoulo/auto-i18n.git
+git clone https://github.com/stvekoulo/next-auto-i18n.git
 cd next-auto-i18n
 npm install
-npm test        # vitest
-npm run build   # tsc
-npm run dev -- init  # test local
+npm run build
+npm test
 ```
 
 ## Licence

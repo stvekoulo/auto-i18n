@@ -19,13 +19,16 @@ export interface GenerateResult {
   newCount: number;
 }
 
-export async function generateMessages(
-  strings: ExtractedString[],
-  options: GenerateOptions,
-): Promise<GenerateResult> {
-  const { sourceLocale, messagesDir, existingMessages = {} } = options;
+export interface ResolvedMessages {
+  keyMap: Map<string, string>;
+  messages: Record<string, string>;
+  newCount: number;
+}
 
-  // Map inverse : valeur existante → clé
+export function resolveMessages(
+  strings: ExtractedString[],
+  existingMessages: Record<string, string> = {},
+): ResolvedMessages {
   const existingValueToKey = new Map<string, string>();
   for (const [key, value] of Object.entries(existingMessages)) {
     existingValueToKey.set(value, key);
@@ -72,11 +75,32 @@ export async function generateMessages(
     Object.entries(messages).sort(([a], [b]) => a.localeCompare(b)),
   );
 
+  return { keyMap, messages: sortedMessages, newCount };
+}
+
+export async function writeMessages(
+  sourceLocale: string,
+  messagesDir: string,
+  resolved: ResolvedMessages,
+): Promise<string> {
+  const { messages } = resolved;
+
   const absMessagesDir = resolve(messagesDir);
   await mkdir(absMessagesDir, { recursive: true });
 
   const outputPath = join(absMessagesDir, `${sourceLocale}.json`);
-  await writeFile(outputPath, JSON.stringify(sortedMessages, null, 2) + '\n', 'utf-8');
+  await writeFile(outputPath, JSON.stringify(messages, null, 2) + '\n', 'utf-8');
 
-  return { keyMap, messages: sortedMessages, outputPath, newCount };
+  return outputPath;
+}
+
+export async function generateMessages(
+  strings: ExtractedString[],
+  options: GenerateOptions,
+): Promise<GenerateResult> {
+  const { sourceLocale, messagesDir, existingMessages = {} } = options;
+  const resolved = resolveMessages(strings, existingMessages);
+  const outputPath = await writeMessages(sourceLocale, messagesDir, resolved);
+
+  return { ...resolved, outputPath };
 }
