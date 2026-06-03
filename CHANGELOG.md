@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.0.0] - 2026-06-03 - Refonte majeure (zéro-mutation)
+
+Réécriture complète vers une architecture `core` pur + `adapters`. **Breaking change** : le CLI ne réécrit plus le code source.
+
+### Changed
+
+- **Modèle zéro-mutation** : l'outil ne modifie plus le JSX / les composants. Il détecte, catalogue, traduit et génère un **guide d'intégration** (`i18n-guide.md`) décrivant le câblage `t()` fichier par fichier. C'était la principale source d'erreurs en projet réel.
+- **Infra `next-intl` additive** : `i18n/routing.ts`, `i18n/request.ts`, middleware/proxy, plugin `next.config` (avec backup) et `LanguageSwitcher` ne sont créés que s'ils sont absents. Plus de restructuration automatique de `app/[locale]` (instructions dans le guide).
+- **Surface réduite à 3 commandes** : `init`, `sync`, `check`.
+- **`check`** : nouvelle commande read-only pour la CI (`--json`, code de sortie ≠ 0 si travail en attente).
+- **Provider de traduction abstrait** : interface `TranslationProvider` (DeepL implémenté), extensible.
+- `auto-i18n.config.json` : seuls `sourceLocale` et `targetLocales` sont requis, le reste reçoit des défauts.
+
+### Removed
+
+- Commandes `add-locale`, `missing`, `extract`, `extract sync` (remplacées par `init`/`sync`/`check`).
+- Réécriture AST du code source (`src/rewriter`) et restructuration `app/[locale]` automatique.
+
+### Fixed
+
+- La version affichée par le CLI est désormais lue depuis `package.json` (était figée à `0.7.3`).
+
+### Architecture
+
+- `src/core` (pur, sans I/O, 100 % testable) ← `src/pipeline` (orchestration) ← `src/commands` ← `src/cli`. `src/adapters` (fs, project, scaffold, translation) pour l'I/O. Suite de tests : 66 cas.
+
 ## [0.7.3] - 2026-04-07
 
 ### Added
