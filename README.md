@@ -8,6 +8,8 @@
 
 `next-auto-i18n` scanne votre projet, extrait les chaînes traduisibles, génère des clés stables, remplit et traduit les catalogues `messages/*.json`, et met en place l'infrastructure `next-intl` (fichiers additifs). Plutôt que de muter votre JSX — source de la plupart des erreurs — il produit un **guide d'intégration précis** qui vous dit, fichier par fichier et ligne par ligne, comment câbler chaque `t()`.
 
+> **Vous venez de la 0.x ?** Cette `1.0` est une refonte majeure (le code source n'est plus réécrit). Voir le [guide de migration](./MIGRATION.md).
+
 ## Philosophie
 
 - **Zéro mutation du code source.** L'outil ne touche pas à vos composants. Il détecte, catalogue, traduit, et explique.

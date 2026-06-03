@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.0.2] - 2026-06-03
+
+### Added
+
+- **`MIGRATION.md`** : guide de migration 0.x → 1.0 (français + résumé anglais pour les notes de release), livré dans le package et lié depuis le README.
+
 ## [1.0.1] - 2026-06-03
 
 ### Added
