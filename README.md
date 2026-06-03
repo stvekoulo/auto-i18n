@@ -76,6 +76,7 @@ next-auto-i18n check --json
 
 ```json
 {
+  "$schema": "./node_modules/next-auto-i18n/schema/auto-i18n.config.schema.json",
   "sourceLocale": "fr",
   "targetLocales": ["en", "es"],
   "provider": "deepl",
@@ -83,6 +84,19 @@ next-auto-i18n check --json
   "messagesDir": "./messages",
   "ignore": ["node_modules", ".next", "**/*.test.*", "**/*.spec.*"]
 }
+```
+
+Le champ `$schema` (ajouté automatiquement par `init`) active l'**autocomplétion, la validation et les infobulles dans VSCode** lorsque vous éditez la config.
+
+## Usage programmatique
+
+L'API est aussi utilisable depuis un script (l'import n'exécute pas le CLI) :
+
+```ts
+import { runCheck, runSync } from 'next-auto-i18n';
+
+const { report } = await runCheck({ projectRoot: process.cwd() });
+console.log(report.totalMissing, 'traductions manquantes');
 ```
 
 La clé API vit dans `.env.local` :

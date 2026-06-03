@@ -7,7 +7,13 @@ import { join } from 'path';
 
 export const CONFIG_FILENAME = 'auto-i18n.config.json';
 
+/** Chemin du schéma JSON dans le package installé (autocomplétion VSCode). */
+export const CONFIG_SCHEMA_PATH =
+  './node_modules/next-auto-i18n/schema/auto-i18n.config.schema.json';
+
 export interface AutoI18nConfig {
+  /** Référence au schéma JSON — active l'autocomplétion dans l'éditeur. */
+  $schema?: string;
   sourceLocale: string;
   targetLocales: string[];
   provider: string;
@@ -38,7 +44,7 @@ export function isValidConfig(value: unknown): value is Pick<AutoI18nConfig, 'so
 }
 
 export function buildConfig(sourceLocale: string, targetLocales: string[]): AutoI18nConfig {
-  return { sourceLocale, targetLocales, ...DEFAULTS };
+  return { $schema: CONFIG_SCHEMA_PATH, sourceLocale, targetLocales, ...DEFAULTS };
 }
 
 export class ConfigNotFoundError extends Error {

@@ -33,6 +33,19 @@ program
   .description("Internationalisation pour projets Next.js App Router (sans réécrire votre code)")
   .version(readVersion());
 
+program.addHelpText(
+  'after',
+  `
+Exemples :
+  $ next-auto-i18n init                      Mise en place interactive
+  $ next-auto-i18n init --source fr --locale en,es,de
+  $ next-auto-i18n sync                      Met à jour catalogues + traduit le manquant
+  $ next-auto-i18n check                     Diagnostic (CI) — code de sortie ≠ 0 si travail en attente
+  $ next-auto-i18n check --json              Rapport machine pour scripts/CI
+
+Documentation : https://github.com/stvekoulo/next-auto-i18n#readme`,
+);
+
 program
   .command('init')
   .description("Installe l'infra next-intl, génère et traduit les catalogues, et produit le guide d'intégration")

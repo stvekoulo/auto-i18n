@@ -1,0 +1,54 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://raw.githubusercontent.com/stvekoulo/next-auto-i18n/main/schema/auto-i18n.config.schema.json",
+  "title": "next-auto-i18n configuration",
+  "description": "Configuration de next-auto-i18n. Seuls sourceLocale et targetLocales sont requis ; les autres champs ont des valeurs par défaut.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["sourceLocale", "targetLocales"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Chemin ou URL du schéma JSON (active l'autocomplétion dans l'éditeur)."
+    },
+    "sourceLocale": {
+      "type": "string",
+      "description": "Langue source du projet, en code ISO (ex: \"fr\", \"en\").",
+      "pattern": "^[a-z]{2}(-[a-zA-Z]{2,})?$",
+      "examples": ["fr", "en", "pt-BR"]
+    },
+    "targetLocales": {
+      "type": "array",
+      "description": "Langues cibles vers lesquelles traduire (codes ISO).",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z]{2}(-[a-zA-Z]{2,})?$"
+      },
+      "examples": [["en", "es", "de"]]
+    },
+    "provider": {
+      "type": "string",
+      "description": "Provider de traduction utilisé.",
+      "enum": ["deepl"],
+      "default": "deepl"
+    },
+    "apiKeyEnv": {
+      "type": "string",
+      "description": "Nom de la variable d'environnement contenant la clé API (lue depuis .env.local).",
+      "default": "AUTO_I18N_DEEPL_KEY"
+    },
+    "messagesDir": {
+      "type": "string",
+      "description": "Dossier où sont écrits les catalogues messages/<locale>.json.",
+      "default": "./messages"
+    },
+    "ignore": {
+      "type": "array",
+      "description": "Patterns glob exclus du scan (en plus des exclusions par défaut comme node_modules et .next).",
+      "items": { "type": "string" },
+      "default": ["node_modules", ".next", "**/*.test.*", "**/*.spec.*"]
+    }
+  }
+}
