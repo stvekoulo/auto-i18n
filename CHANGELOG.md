@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.1] - 2026-06-03
+
+### Added
+
+- **JSON Schema** (`schema/auto-i18n.config.schema.json`) pour `auto-i18n.config.json` : autocomplétion, validation et infobulles dans VSCode. `init` écrit désormais `"$schema"` dans la config générée.
+- **Entrée bibliothèque** (`main`/`types`/`exports`) : `import { runCheck, runSync } from 'next-auto-i18n'` sans exécuter le CLI. Le binaire reste exposé via `bin`.
+- Section « Usage programmatique » dans le README et exemples dans `--help`.
+
+### Changed
+
+- `package.json` : `exports` map, `sideEffects: false`, `files` inclut `schema/` et `CHANGELOG.md`, scripts `typecheck` et `test:run`, description à jour.
+
 ## [1.0.0] - 2026-06-03 - Refonte majeure (zéro-mutation)
 
 Réécriture complète vers une architecture `core` pur + `adapters`. **Breaking change** : le CLI ne réécrit plus le code source.
