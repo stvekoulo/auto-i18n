@@ -29,6 +29,7 @@ interface GuideString {
   safety: ExtractedString['safety'];
   reviewReason?: ExtractedString['reviewReason'];
   variables?: string[];
+  pluralHint?: boolean;
 }
 
 interface GuideFile {
@@ -36,6 +37,15 @@ interface GuideFile {
   runtime: Runtime;
   strings: GuideString[];
   hasModuleScope: boolean;
+}
+
+/** Candidat à une forme plurielle ICU, avec sa localisation pour le rapport. */
+export interface PluralCandidate {
+  relPath: string;
+  line: number;
+  value: string;
+  key: string;
+  variables: string[];
 }
 
 export interface GuideModel {
@@ -46,12 +56,14 @@ export interface GuideModel {
   totalStrings: number;
   safeCount: number;
   reviewCount: number;
+  pluralCandidates: PluralCandidate[];
 }
 
 function suggestReplacement(s: GuideString): string {
   if (s.safety === 'review' && s.reviewReason === 'module_scope') {
     return '⚠ hors composant — voir note';
   }
+  if (s.pluralHint) return '⚠ pluriel probable — voir section ICU';
   if (s.kind === 'template' && s.variables && s.variables.length > 0) {
     return `t("${s.key}", { ${s.variables.join(', ')} })`;
   }
@@ -68,28 +80,41 @@ export function buildGuideModel(input: GuideInput): GuideModel {
   }
 
   const files: GuideFile[] = [];
+  const pluralCandidates: PluralCandidate[] = [];
   let safeCount = 0;
   let reviewCount = 0;
 
   for (const [file, fileStrings] of byFile) {
+    const relPath = relative(input.projectRoot, file).replace(/\\/g, '/');
     const strings: GuideString[] = fileStrings
       .map(s => {
         if (s.safety === 'safe') safeCount++;
         else reviewCount++;
+        const key = input.keyMap.get(s.value) ?? '';
+        if (s.pluralHint) {
+          pluralCandidates.push({
+            relPath,
+            line: s.line,
+            value: s.value,
+            key,
+            variables: s.variables ?? [],
+          });
+        }
         return {
           value: s.value,
-          key: input.keyMap.get(s.value) ?? '',
+          key,
           line: s.line,
           kind: s.kind,
           safety: s.safety,
           ...(s.reviewReason ? { reviewReason: s.reviewReason } : {}),
           ...(s.variables ? { variables: s.variables } : {}),
+          ...(s.pluralHint ? { pluralHint: true } : {}),
         };
       })
       .sort((a, b) => a.line - b.line);
 
     files.push({
-      relPath: relative(input.projectRoot, file).replace(/\\/g, '/'),
+      relPath,
       runtime: input.fileRuntimes.get(file) ?? 'server',
       strings,
       hasModuleScope: strings.some(s => s.reviewReason === 'module_scope'),
@@ -97,6 +122,7 @@ export function buildGuideModel(input: GuideInput): GuideModel {
   }
 
   files.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  pluralCandidates.sort((a, b) => a.relPath.localeCompare(b.relPath) || a.line - b.line);
 
   return {
     sourceLocale: input.sourceLocale,
@@ -106,11 +132,19 @@ export function buildGuideModel(input: GuideInput): GuideModel {
     totalStrings: input.strings.length,
     safeCount,
     reviewCount,
+    pluralCandidates,
   };
 }
 
 function escapeCell(value: string): string {
   return value.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+}
+
+/** Suggestion ICU pour un candidat pluriel : garde le texte détecté comme forme `other`. */
+function icuSuggestion(candidate: PluralCandidate): string {
+  const arg = candidate.variables[0] ?? 'count';
+  const other = candidate.value.replace(`{${arg}}`, '#');
+  return `"${candidate.key}": "{${arg}, plural, one {# ...} other {${other}}}"`;
 }
 
 export function buildGuide(model: GuideModel): string {
@@ -122,8 +156,8 @@ export function buildGuide(model: GuideModel): string {
   lines.push('');
   lines.push(
     `Cet outil a détecté les textes traduisibles, généré les clés et rempli les ` +
-    `catalogues \`messages/*.json\` (\`${model.sourceLocale}\` → ${model.targetLocales.map(l => `\`${l}\``).join(', ')}). ` +
-    `Il reste à remplacer chaque texte par un appel \`t()\` en suivant ce guide.`,
+      `catalogues \`messages/*.json\` (\`${model.sourceLocale}\` → ${model.targetLocales.map(l => `\`${l}\``).join(', ')}). ` +
+      `Il reste à remplacer chaque texte par un appel \`t()\` en suivant ce guide.`,
   );
   lines.push('');
 
@@ -132,6 +166,11 @@ export function buildGuide(model: GuideModel): string {
   lines.push('');
   lines.push(`- ${model.totalStrings} string(s) détectée(s) dans ${model.files.length} fichier(s)`);
   lines.push(`- ${model.safeCount} sûre(s) à câbler, ${model.reviewCount} à revoir manuellement`);
+  if (model.pluralCandidates.length > 0) {
+    lines.push(
+      `- ${model.pluralCandidates.length} candidat(s) au pluriel ICU (voir section dédiée)`,
+    );
+  }
   lines.push('');
 
   // Mode d'emploi
@@ -176,11 +215,31 @@ export function buildGuide(model: GuideModel): string {
     if (file.hasModuleScope) {
       lines.push(
         '> ⚠ Ce fichier contient des strings **hors composant** (niveau module). ' +
-        '`t()` n\'y est pas accessible : déplacez-les dans un composant/hook, ou exposez-les ' +
-        'via une fonction recevant `t`.',
+          "`t()` n'y est pas accessible : déplacez-les dans un composant/hook, ou exposez-les " +
+          'via une fonction recevant `t`.',
       );
       lines.push('');
     }
+  }
+
+  // Pluriels détectés
+  if (model.pluralCandidates.length > 0) {
+    lines.push('## Pluriels probables');
+    lines.push('');
+    lines.push(
+      `${model.pluralCandidates.length} texte(s) combinent une variable de type compteur ` +
+        '(`count`, `total`, `length`…) avec un mot — probablement une forme plurielle plutôt ' +
+        'qu\'un texte figé. `t("clé", { count })` fonctionne, mais `next-intl` sait gérer ' +
+        "l'accord singulier/pluriel via ICU MessageFormat : à adapter dans `messages/*.json`.",
+    );
+    lines.push('');
+    for (const c of model.pluralCandidates) {
+      lines.push(`- \`${c.relPath}:${c.line}\` — "${c.value}"`);
+      lines.push(`  \`\`\`json`);
+      lines.push(`  ${icuSuggestion(c)}`);
+      lines.push(`  \`\`\``);
+    }
+    lines.push('');
   }
 
   // Setup app/[locale]
@@ -188,9 +247,9 @@ export function buildGuide(model: GuideModel): string {
   lines.push('');
   lines.push(
     'Cet outil ne restructure pas vos routes automatiquement. Pour activer le routage ' +
-    'par locale, déplacez le contenu de `app/` dans `app/[locale]/` et ajoutez un layout ' +
-    'de locale enveloppant vos pages dans `NextIntlClientProvider`. ' +
-    'Voir la [doc next-intl](https://next-intl.dev/docs/getting-started/app-router).',
+      'par locale, déplacez le contenu de `app/` dans `app/[locale]/` et ajoutez un layout ' +
+      'de locale enveloppant vos pages dans `NextIntlClientProvider`. ' +
+      'Voir la [doc next-intl](https://next-intl.dev/docs/getting-started/app-router).',
   );
   lines.push('');
 

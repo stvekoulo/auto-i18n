@@ -6,11 +6,7 @@
  */
 
 /** Nature syntaxique d'une string détectée dans le code source. */
-export type StringKind =
-  | 'jsx-text'
-  | 'jsx-attribute'
-  | 'template'
-  | 'string-literal';
+export type StringKind = 'jsx-text' | 'jsx-attribute' | 'template' | 'string-literal';
 
 /**
  * Emplacement d'une string vis-à-vis des fonctions :
@@ -47,6 +43,11 @@ export interface ExtractedString extends SourceLocation {
   reviewReason?: ReviewReason;
   /** Présent pour `kind === 'template'` avec interpolation. */
   variables?: string[];
+  /**
+   * true si une variable interpolée ressemble à un compteur (`count`, `total`…) —
+   * candidat probable à une forme plurielle ICU plutôt qu'un texte figé.
+   */
+  pluralHint?: boolean;
 }
 
 /** Identité stable d'une occurrence (dé-duplication, comparaison). */

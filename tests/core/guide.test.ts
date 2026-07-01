@@ -4,7 +4,11 @@ import type { ExtractedString, Runtime } from '../../src/core/types';
 
 function s(partial: Partial<ExtractedString> & { value: string; file: string }): ExtractedString {
   return {
-    kind: 'jsx-text', line: 1, column: 1, scope: 'component', safety: 'safe',
+    kind: 'jsx-text',
+    line: 1,
+    column: 1,
+    scope: 'component',
+    safety: 'safe',
     ...partial,
   };
 }
@@ -20,7 +24,10 @@ describe('core/guide — buildGuideModel', () => {
         s({ value: 'Bonjour', file: '/proj/app/page.tsx', line: 5 }),
         s({ value: 'Salut', file: '/proj/app/page.tsx', line: 2 }),
       ],
-      keyMap: new Map([['Bonjour', 'bonjour'], ['Salut', 'salut']]),
+      keyMap: new Map([
+        ['Bonjour', 'bonjour'],
+        ['Salut', 'salut'],
+      ]),
       fileRuntimes: new Map([['/proj/app/page.tsx', 'client' as Runtime]]),
     });
 
@@ -40,7 +47,14 @@ describe('core/guide — buildGuideModel', () => {
       targetLocales: [],
       date: 'x',
       strings: [
-        s({ value: 'Accueil', file: '/proj/lib/data.ts', scope: 'module', safety: 'review', reviewReason: 'module_scope', kind: 'string-literal' }),
+        s({
+          value: 'Accueil',
+          file: '/proj/lib/data.ts',
+          scope: 'module',
+          safety: 'review',
+          reviewReason: 'module_scope',
+          kind: 'string-literal',
+        }),
       ],
       keyMap: new Map([['Accueil', 'accueil']]),
       fileRuntimes: new Map(),
@@ -76,10 +90,40 @@ describe('core/guide — buildGuide (markdown)', () => {
       sourceLocale: 'fr',
       targetLocales: [],
       date: 'x',
-      strings: [s({ value: 'Salut {name}', file: '/proj/c.tsx', kind: 'template', variables: ['name'] })],
+      strings: [
+        s({ value: 'Salut {name}', file: '/proj/c.tsx', kind: 'template', variables: ['name'] }),
+      ],
       keyMap: new Map([['Salut {name}', 'salut_name']]),
       fileRuntimes: new Map(),
     });
     expect(buildGuide(model)).toContain('t("salut_name", { name })');
+  });
+
+  it('regroupe les candidats pluriels et suggère une syntaxe ICU', () => {
+    const model = buildGuideModel({
+      projectRoot: '/proj',
+      sourceLocale: 'fr',
+      targetLocales: [],
+      date: 'x',
+      strings: [
+        s({
+          value: '{count} articles',
+          file: '/proj/c.tsx',
+          kind: 'template',
+          variables: ['count'],
+          pluralHint: true,
+        }),
+      ],
+      keyMap: new Map([['{count} articles', 'count_articles']]),
+      fileRuntimes: new Map(),
+    });
+
+    expect(model.pluralCandidates).toHaveLength(1);
+    expect(model.pluralCandidates[0].key).toBe('count_articles');
+
+    const md = buildGuide(model);
+    expect(md).toContain('## Pluriels probables');
+    expect(md).toContain('⚠ pluriel probable');
+    expect(md).toContain('"count_articles": "{count, plural, one {# ...} other {# articles}}"');
   });
 });

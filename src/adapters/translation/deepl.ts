@@ -100,27 +100,37 @@ export class DeepLProvider implements TranslationProvider {
       case 403:
         return new TranslationError(
           'Clé API DeepL invalide ou non autorisée (403). Vérifiez votre clé.',
-          'auth', false, status,
+          'auth',
+          false,
+          status,
         );
       case 456:
         return new TranslationError(
           'Quota DeepL dépassé pour ce mois (456).',
-          'quota', false, status,
+          'quota',
+          false,
+          status,
         );
       case 429:
         return new TranslationError(
           'Trop de requêtes DeepL (429). Nouvel essai dans un instant.',
-          'rate_limit', true, status,
+          'rate_limit',
+          true,
+          status,
         );
       case 400:
         return new TranslationError(
           'Requête DeepL invalide (400). Vérifiez le code de langue cible.',
-          'bad_request', false, status,
+          'bad_request',
+          false,
+          status,
         );
       default:
         return new TranslationError(
           `Erreur DeepL inattendue (${status}): ${detail}`,
-          'provider', status >= 500, status,
+          'provider',
+          status >= 500,
+          status,
         );
     }
   }

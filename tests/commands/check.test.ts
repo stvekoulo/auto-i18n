@@ -80,7 +80,9 @@ describe('commands/check — runCheck', () => {
 
   it('émet du JSON en mode json', async () => {
     const logs: string[] = [];
-    vi.spyOn(console, 'log').mockImplementation((m?: unknown) => { logs.push(String(m)); });
+    vi.spyOn(console, 'log').mockImplementation((m?: unknown) => {
+      logs.push(String(m));
+    });
     const dir = await makeProject({
       'auto-i18n.config.json': CONFIG,
       'app/page.tsx': 'export default function Page(){ return <h1>Bonjour</h1>; }',

@@ -18,12 +18,7 @@ export interface TranslationProvider {
 }
 
 export type TranslationErrorKind =
-  | 'auth'
-  | 'quota'
-  | 'rate_limit'
-  | 'network'
-  | 'bad_request'
-  | 'provider';
+  'auth' | 'quota' | 'rate_limit' | 'network' | 'bad_request' | 'provider';
 
 /** Erreur normalisée, indépendante du provider concret. */
 export class TranslationError extends Error {

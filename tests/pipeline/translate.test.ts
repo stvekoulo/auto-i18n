@@ -91,7 +91,9 @@ describe('pipeline/translate — translateCatalogs', () => {
   });
 
   it('échoue sans réessayer sur erreur non-retryable', async () => {
-    const provider = new FakeProvider(async () => { throw new TranslationError('403', 'auth', false); });
+    const provider = new FakeProvider(async () => {
+      throw new TranslationError('403', 'auth', false);
+    });
     const result = await translateCatalogs({
       provider,
       sourceLocale: 'fr',

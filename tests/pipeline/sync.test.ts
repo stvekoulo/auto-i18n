@@ -56,7 +56,8 @@ describe('pipeline/sync — runSync', () => {
 
   it('réutilise les clés existantes (merge stable)', async () => {
     const dir = await makeProject({
-      'app/page.tsx': 'export default function P(){ return (<div><h1>Bonjour</h1><p>Nouveau</p></div>); }',
+      'app/page.tsx':
+        'export default function P(){ return (<div><h1>Bonjour</h1><p>Nouveau</p></div>); }',
       'messages/fr.json': JSON.stringify({ bonjour: 'Bonjour' }),
       'messages/en.json': JSON.stringify({ bonjour: 'Hi' }),
     });
@@ -66,7 +67,7 @@ describe('pipeline/sync — runSync', () => {
     expect(report.reusedKeys).toContain('bonjour');
     expect(report.addedKeys).toContain('nouveau');
     const en = await readJson(dir, 'messages/en.json');
-    expect(en.bonjour).toBe('Hi');        // préservé
+    expect(en.bonjour).toBe('Hi'); // préservé
     expect(en.nouveau).toBe('en:Nouveau'); // traduit
   });
 

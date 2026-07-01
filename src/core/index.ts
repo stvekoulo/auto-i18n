@@ -13,3 +13,4 @@ export * from './extraction/index.js';
 export * from './scan/index.js';
 export * from './check/index.js';
 export * from './guide/index.js';
+export * from './write/index.js';

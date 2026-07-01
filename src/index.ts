@@ -12,8 +12,14 @@ export { runCheck, type RunCheckOptions, type RunCheckResult } from './commands/
 
 // Configuration
 export {
-  loadConfig, saveConfig, buildConfig, isValidConfig,
-  ConfigNotFoundError, CONFIG_FILENAME, CONFIG_SCHEMA_PATH,
+  loadConfig,
+  saveConfig,
+  buildConfig,
+  isValidConfig,
+  ConfigNotFoundError,
+  CONFIG_FILENAME,
+  CONFIG_SCHEMA_PATH,
+  PROVIDER_API_KEY_ENV,
   type AutoI18nConfig,
 } from './config/index.js';
 
@@ -25,11 +31,22 @@ export {
   type TranslateCatalogsInput,
   type TranslateCatalogsResult,
 } from './pipeline/translate.js';
+export {
+  runWrite,
+  type RunWriteInput,
+  type WriteReport,
+  type FileWriteOutcome,
+} from './pipeline/write.js';
 
 // Provider de traduction (pour brancher un provider custom)
 export {
-  createProvider, DeepLProvider, TranslationError,
-  type TranslationProvider, type TranslateParams, type TranslationErrorKind,
+  createProvider,
+  DeepLProvider,
+  GoogleTranslateProvider,
+  TranslationError,
+  type TranslationProvider,
+  type TranslateParams,
+  type TranslationErrorKind,
 } from './adapters/translation/index.js';
 
 // Core (extraction, filtres, clés, catalogue, check, guide) — purs

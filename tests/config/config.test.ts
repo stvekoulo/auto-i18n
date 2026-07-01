@@ -2,7 +2,13 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile, readFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { loadConfig, buildConfig, isValidConfig, ConfigNotFoundError, CONFIG_SCHEMA_PATH } from '../../src/config';
+import {
+  loadConfig,
+  buildConfig,
+  isValidConfig,
+  ConfigNotFoundError,
+  CONFIG_SCHEMA_PATH,
+} from '../../src/config';
 
 let tmpDirs: string[] = [];
 
@@ -50,6 +56,14 @@ describe('config', () => {
     expect(config.targetLocales).toEqual(['en', 'es']);
     expect(config.messagesDir).toBe('./messages');
     expect(config.$schema).toBe(CONFIG_SCHEMA_PATH);
+    expect(config.provider).toBe('deepl');
+    expect(config.apiKeyEnv).toBe('AUTO_I18N_DEEPL_KEY');
+  });
+
+  it('buildConfig dérive apiKeyEnv du provider choisi', () => {
+    const config = buildConfig('fr', ['en'], 'google');
+    expect(config.provider).toBe('google');
+    expect(config.apiKeyEnv).toBe('AUTO_I18N_GOOGLE_KEY');
   });
 
   it('charge une config contenant $schema sans erreur', async () => {

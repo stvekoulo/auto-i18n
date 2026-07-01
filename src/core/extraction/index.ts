@@ -7,23 +7,19 @@
  */
 
 import { type SourceFile, SyntaxKind, Node } from 'ts-morph';
-import type {
-  ExtractedString,
-  ReviewReason,
-  Runtime,
-  Scope,
-  StringKind,
-} from '../types.js';
+import type { ExtractedString, ReviewReason, Runtime, Scope, StringKind } from '../types.js';
 
 export { parseSource } from './parse.js';
 
 /** Attributs JSX dont la valeur est du texte présenté à l'utilisateur. */
+// prettier-ignore
 export const TRANSLATABLE_ATTRIBUTES = new Set([
   'placeholder', 'alt', 'title', 'aria-label', 'aria-placeholder',
   'aria-description', 'aria-details', 'label', 'content',
 ]);
 
 /** Noms de propriétés dont la valeur est technique (jamais traduisible). */
+// prettier-ignore
 const TECHNICAL_PROPERTY_NAMES = new Set([
   'key', 'id', 'className', 'class', 'style', 'type',
   'href', 'src', 'srcSet', 'action', 'method', 'target', 'rel',
@@ -42,6 +38,12 @@ const CSS_UTILITY_CALLEES = /^(cva|cn|clsx|twMerge|classNames|classnames|css|sty
 const TECHNICAL_CALLEES =
   /^(console\.\w+|require|Error|JSON\.\w+|parseInt|parseFloat|fetch|addEventListener|removeEventListener)$/;
 const T_CALLEES = /^t$|^translate$/;
+/** Variable interpolée qui ressemble à un compteur → forme plurielle probable. */
+const PLURAL_VAR_RE = /count|total|num|qty|quantity|amount|length/i;
+
+function isPluralCandidate(variables: string[]): boolean {
+  return variables.some(v => PLURAL_VAR_RE.test(v));
+}
 
 function getTemplateText(node: Node): string {
   const compiler = node.compilerNode as unknown as Record<string, unknown>;
@@ -100,7 +102,8 @@ function isInNonExtractableContext(node: Node): boolean {
   if (!parent) return true;
 
   if (Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return true;
-  if (Node.isPropertyAssignment(parent) && TECHNICAL_PROPERTY_NAMES.has(parent.getName())) return true;
+  if (Node.isPropertyAssignment(parent) && TECHNICAL_PROPERTY_NAMES.has(parent.getName()))
+    return true;
   if (parent.getKind() === SyntaxKind.Parameter) return true;
   if (parent.getKind() === SyntaxKind.BindingElement) return true;
   if (Node.isNewExpression(parent)) return true;
@@ -116,7 +119,11 @@ function isInNonExtractableContext(node: Node): boolean {
     if (Node.isTypeAliasDeclaration(current) || Node.isInterfaceDeclaration(current)) return true;
     if (Node.isEnumDeclaration(current)) return true;
     if (Node.isJsxAttribute(current)) return true;
-    if (Node.isCallExpression(current) && CSS_UTILITY_CALLEES.test(current.getExpression().getText())) return true;
+    if (
+      Node.isCallExpression(current) &&
+      CSS_UTILITY_CALLEES.test(current.getExpression().getText())
+    )
+      return true;
     current = current.getParent();
   }
 
@@ -155,11 +162,10 @@ function isUnsafeJsxText(node: Node, leading: string, trailing: string): boolean
 function makeString(
   base: { value: string; kind: StringKind; file: string },
   node: Node,
-  opts: { review?: ReviewReason; variables?: string[] } = {},
+  opts: { review?: ReviewReason; variables?: string[]; pluralHint?: boolean } = {},
 ): ExtractedString {
-  const scope: Scope = base.kind === 'jsx-text' || base.kind === 'jsx-attribute'
-    ? 'component'
-    : scopeOf(node);
+  const scope: Scope =
+    base.kind === 'jsx-text' || base.kind === 'jsx-attribute' ? 'component' : scopeOf(node);
 
   let safety: ExtractedString['safety'] = 'safe';
   let reviewReason = opts.review;
@@ -178,6 +184,7 @@ function makeString(
     safety,
     ...(reviewReason ? { reviewReason } : {}),
     ...(opts.variables ? { variables: opts.variables } : {}),
+    ...(opts.pluralHint ? { pluralHint: true } : {}),
   };
 }
 
@@ -193,9 +200,19 @@ export function detectRuntime(sourceFile: SourceFile): Runtime {
   return 'server';
 }
 
-/** Extrait toutes les strings traduisibles brutes d'un fichier (avant filtres). */
-export function extractStrings(sourceFile: SourceFile, file: string): ExtractedString[] {
-  const results: ExtractedString[] = [];
+/** Une string extraite, avec le nœud AST dont elle provient (pour le codemod `--write`). */
+export interface ExtractedStringNode {
+  info: ExtractedString;
+  node: Node;
+}
+
+/**
+ * Extrait toutes les strings traduisibles brutes d'un fichier (avant filtres),
+ * avec leur nœud AST d'origine. `extractStrings` (API publique, sans I/O ni
+ * dépendance à ts-morph côté appelant) en est une projection.
+ */
+export function extractStringNodes(sourceFile: SourceFile, file: string): ExtractedStringNode[] {
+  const results: ExtractedStringNode[] = [];
 
   // 1. Texte JSX
   for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.JsxText)) {
@@ -204,7 +221,10 @@ export function extractStrings(sourceFile: SourceFile, file: string): ExtractedS
     if (!trimmed) continue;
     const { leading, trailing } = getJsxPadding(rawText, trimmed);
     const review = isUnsafeJsxText(node, leading, trailing) ? 'jsx_inline_spacing' : undefined;
-    results.push(makeString({ value: trimmed, kind: 'jsx-text', file }, node, { review }));
+    results.push({
+      info: makeString({ value: trimmed, kind: 'jsx-text', file }, node, { review }),
+      node,
+    });
   }
 
   // 2. Attributs JSX traduisibles
@@ -227,7 +247,10 @@ export function extractStrings(sourceFile: SourceFile, file: string): ExtractedS
     }
 
     if (!value?.trim()) continue;
-    results.push(makeString({ value: value.trim(), kind: 'jsx-attribute', file }, target));
+    results.push({
+      info: makeString({ value: value.trim(), kind: 'jsx-attribute', file }, target),
+      node: target,
+    });
   }
 
   // 3. Template literals sans interpolation
@@ -235,7 +258,7 @@ export function extractStrings(sourceFile: SourceFile, file: string): ExtractedS
     if (isFirstArgOfTCall(node) || isInsideNonTranslatableAttribute(node)) continue;
     const value = node.getLiteralValue().trim();
     if (!value) continue;
-    results.push(makeString({ value, kind: 'template', file }, node));
+    results.push({ info: makeString({ value, kind: 'template', file }, node), node });
   }
 
   // 4. Template literals avec interpolation `{var}`
@@ -252,7 +275,13 @@ export function extractStrings(sourceFile: SourceFile, file: string): ExtractedS
 
     const trimmed = reconstructed.trim();
     if (!trimmed) continue;
-    results.push(makeString({ value: trimmed, kind: 'template', file }, node, { variables }));
+    results.push({
+      info: makeString({ value: trimmed, kind: 'template', file }, node, {
+        variables,
+        pluralHint: isPluralCandidate(variables),
+      }),
+      node,
+    });
   }
 
   // 5. String literals
@@ -260,8 +289,13 @@ export function extractStrings(sourceFile: SourceFile, file: string): ExtractedS
     if (isFirstArgOfTCall(node) || isInNonExtractableContext(node)) continue;
     const value = node.getLiteralValue().trim();
     if (!value) continue;
-    results.push(makeString({ value, kind: 'string-literal', file }, node));
+    results.push({ info: makeString({ value, kind: 'string-literal', file }, node), node });
   }
 
   return results;
+}
+
+/** Extrait toutes les strings traduisibles brutes d'un fichier (avant filtres). */
+export function extractStrings(sourceFile: SourceFile, file: string): ExtractedString[] {
+  return extractStringNodes(sourceFile, file).map(x => x.info);
 }

@@ -38,10 +38,7 @@ export async function saveApiKeyToEnv(
   await writeFile(envPath, content, 'utf-8');
 }
 
-export async function ensureGitignore(
-  projectRoot: string,
-  entries: string[],
-): Promise<string[]> {
+export async function ensureGitignore(projectRoot: string, entries: string[]): Promise<string[]> {
   const gitignorePath = join(projectRoot, '.gitignore');
   let content = '';
 
@@ -62,10 +59,11 @@ export async function ensureGitignore(
   }
 
   if (added.length > 0) {
-    const suffix = (content.length > 0 && !content.endsWith('\n') ? '\n' : '')
-      + '\n# auto-i18n\n'
-      + added.join('\n')
-      + '\n';
+    const suffix =
+      (content.length > 0 && !content.endsWith('\n') ? '\n' : '') +
+      '\n# auto-i18n\n' +
+      added.join('\n') +
+      '\n';
     await writeFile(gitignorePath, content + suffix, 'utf-8');
   }
 

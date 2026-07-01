@@ -22,6 +22,10 @@
     "test": "vitest",
     "test:run": "vitest run",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "prepublishOnly": "npm run build"
   },
   "files": [
@@ -42,6 +46,8 @@
     "cli",
     "deepl",
     "next-intl",
+    "react-i18next",
+    "vite",
     "internationalization",
     "localization"
   ],
@@ -59,28 +65,40 @@
     "node": ">=18.0.0"
   },
   "dependencies": {
-    "@babel/parser": "^7.24.0",
-    "@babel/types": "^7.24.0",
     "chalk": "^5.3.0",
     "commander": "^12.0.0",
+    "diff": "^9.0.0",
     "dotenv": "^16.4.0",
     "inquirer": "^9.2.0",
     "ora": "^9.3.0",
     "ts-morph": "^22.0.0"
   },
   "peerDependencies": {
-    "next-intl": ">=3.0.0"
+    "next-intl": ">=3.0.0",
+    "i18next": ">=23.0.0",
+    "react-i18next": ">=14.0.0"
   },
   "peerDependenciesMeta": {
     "next-intl": {
-      "optional": false
+      "optional": true
+    },
+    "i18next": {
+      "optional": true
+    },
+    "react-i18next": {
+      "optional": true
     }
   },
   "devDependencies": {
+    "@eslint/js": "^9.17.0",
     "@types/node": "^20.0.0",
     "@types/react": "^19.2.14",
+    "eslint": "^9.17.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
     "tsx": "^4.7.0",
     "typescript": "^5.4.0",
+    "typescript-eslint": "^8.19.0",
     "vitest": "^4.1.1"
   }
 }

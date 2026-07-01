@@ -44,7 +44,7 @@ describe('core/filters — getIgnoreReason', () => {
 
   it('conserve le vrai texte humain', () => {
     expect(getIgnoreReason('Bonjour le monde')).toBeNull();
-    expect(getIgnoreReason("Gérez vos projets")).toBeNull();
+    expect(getIgnoreReason('Gérez vos projets')).toBeNull();
     expect(getIgnoreReason('Welcome')).toBeNull();
   });
 

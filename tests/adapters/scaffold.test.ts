@@ -62,7 +62,7 @@ describe('adapters/scaffold — scaffoldProject', () => {
     await access(join(dir, 'src', 'components', 'LanguageSwitcher.tsx'));
   });
 
-  it('est idempotent (ne réécrit pas l\'existant)', async () => {
+  it("est idempotent (ne réécrit pas l'existant)", async () => {
     const dir = await makeProject({
       'app/layout.tsx': 'export default function L({children}){ return children; }',
       'i18n/routing.ts': '// custom',
@@ -91,5 +91,59 @@ describe('adapters/scaffold — scaffoldProject', () => {
     const results = await scaffoldProject(await detectProject(dir), opts);
     expect(statusOf(results, 'middleware')).toBe('created');
     await access(join(dir, 'proxy.ts'));
+  });
+});
+
+describe('adapters/scaffold — scaffoldProject (react-i18next, sans Next.js)', () => {
+  it('détecte react-i18next en absence de layout Next.js', async () => {
+    const dir = await makeProject({ 'src/main.tsx': "import App from './App';\n" });
+    const project = await detectProject(dir);
+    expect(project.framework).toBe('react-i18next');
+  });
+
+  it("scaffold la config i18n, l'import du point d'entrée et le switcher", async () => {
+    const dir = await makeProject({
+      'src/main.tsx': "import App from './App';\nrender(<App />);\n",
+    });
+    const results = await scaffoldProject(await detectProject(dir), opts);
+
+    expect(statusOf(results, 'react-i18n-config')).toBe('created');
+    expect(statusOf(results, 'react-entry')).toBe('created');
+    expect(statusOf(results, 'switcher')).toBe('created');
+
+    const config = await readFile(join(dir, 'src', 'i18n.ts'), 'utf-8');
+    expect(config).toContain("import fr from '../messages/fr.json'");
+    expect(config).toContain("import en from '../messages/en.json'");
+    expect(config).toContain("lng: 'fr'");
+    expect(config).toContain('initReactI18next');
+
+    const entry = await readFile(join(dir, 'src', 'main.tsx'), 'utf-8');
+    expect(entry.startsWith("import './i18n';\n")).toBe(true);
+    expect(entry).toContain("import App from './App';");
+
+    const switcher = await readFile(
+      join(dir, 'src', 'components', 'LanguageSwitcher.tsx'),
+      'utf-8',
+    );
+    expect(switcher).toContain('react-i18next');
+    expect(switcher).not.toContain('next-intl');
+  });
+
+  it("n'ajoute pas l'import une seconde fois (idempotent)", async () => {
+    const dir = await makeProject({
+      'src/main.tsx': "import './i18n';\nimport App from './App';\n",
+    });
+    const results = await scaffoldProject(await detectProject(dir), opts);
+    expect(statusOf(results, 'react-entry')).toBe('already_present');
+    const entry = await readFile(join(dir, 'src', 'main.tsx'), 'utf-8');
+    expect(entry.match(/import '\.\/i18n'/g)).toHaveLength(1);
+  });
+
+  it("passe react-entry en manual si aucun point d'entrée reconnu", async () => {
+    const dir = await makeProject({
+      'src/App.tsx': 'export default function App(){ return null; }',
+    });
+    const results = await scaffoldProject(await detectProject(dir), opts);
+    expect(statusOf(results, 'react-entry')).toBe('manual');
   });
 });

@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **`sync --write [--dry-run]`** : câble mécaniquement les strings `safety: 'safe'` en `t()`, mais seulement quand c'est prouvable sans ambiguïté — composant client (`useTranslations`), ou composant serveur déjà `async` (`await getTranslations`), avec une fonction hôte identifiable (PascalCase, `useXxx`, ou export par défaut) et aucun `t` conflictuel dans le scope. `--dry-run` affiche le diff sans écrire ; sinon chaque fichier modifié est sauvegardé en `.backup`. Tout le reste (scope module, fonction hôte ambiguë, serveur non-async, corps de fonction concis) reste dans le guide, inchangé.
+- **Provider Google Translate** (`"provider": "google"`) en plus de DeepL — même contrat `TranslationProvider`, protection des placeholders `{var}`. `init` demande désormais le provider à utiliser (`--provider deepl|google`).
+- **Détection de pluriels probables** : un template literal dont la variable interpolée ressemble à un compteur (`count`, `total`, `length`…) est signalé dans le guide avec une suggestion de syntaxe ICU MessageFormat, plutôt qu'un simple `t(key, { count })`.
+- Scan de projet parallélisé (concurrence bornée) — accélère les gros projets sans changer le résultat.
+- **Scaffold react-i18next** pour les projets React/Vite hors Next.js (détecté quand aucun `app/layout.tsx` n'est trouvé) : `init` génère `src/i18n.ts` (config `i18next` chargeant les catalogues déjà traduits), ajoute `import './i18n'` au point d'entrée (`src/main.tsx`/`src/index.tsx`, avec backup), et un `LanguageSwitcher` basé sur `useTranslation()`. `next-intl`/`i18next`/`react-i18next` sont désormais tous des peer dependencies optionnelles (un seul des deux couples est nécessaire selon le projet). **Limite connue** : le guide d'intégration reste orienté next-intl (`useTranslations`/`getTranslations`) — sur un projet react-i18next, adaptez ses suggestions à `useTranslation()`. `sync --write` est désormais **désactivé** sur un projet détecté react-i18next (il injecterait sinon des imports `next-intl` inexistants).
+
+### Changed
+
+- Outillage dev : ESLint (flat config, `typescript-eslint`) + Prettier, scripts `lint`/`lint:fix`/`format`/`format:check`. Codebase reformatée en conséquence.
+- Retiré `@babel/parser` et `@babel/types` des `dependencies` : vestiges du fallback JS jamais implémenté (l'extraction utilise exclusivement `ts-morph`), inutiles en pratique.
+
 ## [1.0.2] - 2026-06-03
 
 ### Added

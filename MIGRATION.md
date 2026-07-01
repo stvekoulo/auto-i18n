@@ -7,28 +7,28 @@ La version `1.0` est une **refonte majeure**. Le changement de fond : **le packa
 - Avant, `init` **modifiait vos composants** (remplaçait le texte par `t()`, injectait imports et `const t`). C'était la principale source d'erreurs.
 - Maintenant, l'outil **ne touche pas à votre code** : il détecte, génère les clés, traduit, installe l'infra `next-intl` manquante, et produit un **guide d'intégration** (`i18n-guide.md`) qui vous dit, fichier par fichier et ligne par ligne, comment câbler chaque `t()`.
 - Les commandes passent de 6 à 3 : **`init`**, **`sync`**, **`check`**.
-- C'est un *breaking change* → version majeure `1.0.0`.
+- C'est un _breaking change_ → version majeure `1.0.0`.
 
 ## Changements de comportement
 
-| | 0.x | 1.0 |
-|---|---|---|
-| Code source des composants | Réécrit automatiquement | **Jamais modifié** |
-| `app/[locale]/` | Restructuration automatique tentée | **Manuelle** (procédure dans le guide) |
-| `next.config` | Plugin `withNextIntl` injecté | Idem, **seule mutation**, avec backup, sinon signalé « manuel » |
-| `routing.ts` / `request.ts` / middleware / switcher | Créés | Créés **uniquement si absents** |
-| Résultat principal | Code migré (parfois cassé) | Catalogues traduits + **guide d'intégration** |
+|                                                     | 0.x                                | 1.0                                                             |
+| --------------------------------------------------- | ---------------------------------- | --------------------------------------------------------------- |
+| Code source des composants                          | Réécrit automatiquement            | **Jamais modifié**                                              |
+| `app/[locale]/`                                     | Restructuration automatique tentée | **Manuelle** (procédure dans le guide)                          |
+| `next.config`                                       | Plugin `withNextIntl` injecté      | Idem, **seule mutation**, avec backup, sinon signalé « manuel » |
+| `routing.ts` / `request.ts` / middleware / switcher | Créés                              | Créés **uniquement si absents**                                 |
+| Résultat principal                                  | Code migré (parfois cassé)         | Catalogues traduits + **guide d'intégration**                   |
 
 ## Changements de commandes
 
-| 0.x | 1.0 | Quoi faire |
-|---|---|---|
-| `init` | `init` | Installe l'infra + catalogues + traduction + guide (ne réécrit plus le code) |
-| `sync` | `sync` | Inchangé en esprit : rescanne, met à jour le catalogue, traduit le manquant |
-| `add-locale <l>` | — | Ajoutez la locale dans `targetLocales` (config) puis lancez `sync` |
-| `missing` | `check` | `check` est read-only, avec code de sortie pour la CI et `--json` |
-| `extract` / `extract sync` | — | C'est devenu le comportement **par défaut** (`init`/`sync` n'écrivent jamais dans votre code) |
-| — | `check` | **Nouveau** : diagnostic CI (strings non cataloguées, traductions manquantes) |
+| 0.x                        | 1.0     | Quoi faire                                                                                    |
+| -------------------------- | ------- | --------------------------------------------------------------------------------------------- |
+| `init`                     | `init`  | Installe l'infra + catalogues + traduction + guide (ne réécrit plus le code)                  |
+| `sync`                     | `sync`  | Inchangé en esprit : rescanne, met à jour le catalogue, traduit le manquant                   |
+| `add-locale <l>`           | —       | Ajoutez la locale dans `targetLocales` (config) puis lancez `sync`                            |
+| `missing`                  | `check` | `check` est read-only, avec code de sortie pour la CI et `--json`                             |
+| `extract` / `extract sync` | —       | C'est devenu le comportement **par défaut** (`init`/`sync` n'écrivent jamais dans votre code) |
+| —                          | `check` | **Nouveau** : diagnostic CI (strings non cataloguées, traductions manquantes)                 |
 
 ### Équivalences rapides
 

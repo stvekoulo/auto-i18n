@@ -13,6 +13,7 @@ L'objectif est simple : un développeur installe le package, lance une commande,
 ### Problème résolu
 
 Aujourd'hui, mettre en place l'i18n dans un projet Next.js demande :
+
 - Installer et configurer manuellement `next-intl` ou `i18next`
 - Parcourir tous les fichiers pour trouver les strings en dur
 - Créer les fichiers JSON de traduction à la main
@@ -32,6 +33,7 @@ npx auto-i18n init
 ```
 
 Une seule commande qui :
+
 1. Scanne tout le projet via AST
 2. Détecte toutes les strings traduisibles
 3. Génère les fichiers de traduction JSON
@@ -43,27 +45,27 @@ Une seule commande qui :
 
 ## Licence & Modèle économique
 
-| Aspect | Décision |
-|--------|----------|
-| Licence | **MIT** — 100% open source |
-| Prix | **Gratuit** — aucune limitation |
-| Distribution | npm public + GitHub |
+| Aspect       | Décision                                         |
+| ------------ | ------------------------------------------------ |
+| Licence      | **MIT** — 100% open source                       |
+| Prix         | **Gratuit** — aucune limitation                  |
+| Distribution | npm public + GitHub                              |
 | Monétisation | Aucune en v1 — SaaS optionnel envisagé plus tard |
 
 ---
 
 ## Stack technique
 
-| Rôle | Technologie | Raison |
-|------|-------------|--------|
-| Langage | **Node.js + TypeScript** | Standard ecosystem npm |
-| CLI framework | **Commander.js** | Léger, populaire, bien documenté |
-| AST parser | **ts-morph** | Support TypeScript natif, API simple |
-| Fallback AST | **@babel/parser** | Projets JS sans TypeScript |
-| Traduction | **DeepL API** | Meilleure qualité, 500k chars/mois gratuit |
-| Runtime i18n | **next-intl** | Standard Next.js App Router |
-| Tests | **Vitest** | Rapide, compatible ESM |
-| Lint/Format | **ESLint + Prettier** | Standard industrie |
+| Rôle          | Technologie              | Raison                                     |
+| ------------- | ------------------------ | ------------------------------------------ |
+| Langage       | **Node.js + TypeScript** | Standard ecosystem npm                     |
+| CLI framework | **Commander.js**         | Léger, populaire, bien documenté           |
+| AST parser    | **ts-morph**             | Support TypeScript natif, API simple       |
+| Fallback AST  | **@babel/parser**        | Projets JS sans TypeScript                 |
+| Traduction    | **DeepL API**            | Meilleure qualité, 500k chars/mois gratuit |
+| Runtime i18n  | **next-intl**            | Standard Next.js App Router                |
+| Tests         | **Vitest**               | Rapide, compatible ESM                     |
+| Lint/Format   | **ESLint + Prettier**    | Standard industrie                         |
 
 ---
 
@@ -219,12 +221,7 @@ next-auto-i18n/
   "provider": "deepl",
   "apiKeyEnv": "AUTO_I18N_DEEPL_KEY",
   "messagesDir": "./messages",
-  "ignore": [
-    "node_modules",
-    ".next",
-    "**/*.test.*",
-    "**/*.spec.*"
-  ]
+  "ignore": ["node_modules", ".next", "**/*.test.*", "**/*.spec.*"]
 }
 ```
 
@@ -264,16 +261,16 @@ npx next-auto-i18n missing
 
 ## Cas limites à gérer
 
-| Cas | Comportement attendu |
-|-----|---------------------|
-| String déjà wrappée dans `t()` | Ignorée, non dupliquée |
-| String vide `""` | Ignorée |
-| String purement numérique `"42"` | Ignorée |
-| className, id, type | Ignorés (liste noire) |
-| Template literal dynamique `\`Salut ${name}\`` | Converti en `t("key", { name })` |
-| String identique dans plusieurs fichiers | Une seule clé partagée |
-| Projet sans TypeScript | Fallback sur @babel/parser |
-| Clé DeepL absente | Message d'erreur clair avec lien inscription |
+| Cas                                            | Comportement attendu                         |
+| ---------------------------------------------- | -------------------------------------------- |
+| String déjà wrappée dans `t()`                 | Ignorée, non dupliquée                       |
+| String vide `""`                               | Ignorée                                      |
+| String purement numérique `"42"`               | Ignorée                                      |
+| className, id, type                            | Ignorés (liste noire)                        |
+| Template literal dynamique `\`Salut ${name}\`` | Converti en `t("key", { name })`             |
+| String identique dans plusieurs fichiers       | Une seule clé partagée                       |
+| Projet sans TypeScript                         | Fallback sur @babel/parser                   |
+| Clé DeepL absente                              | Message d'erreur clair avec lien inscription |
 
 ---
 
@@ -289,6 +286,7 @@ npx next-auto-i18n missing
 ## Roadmap
 
 ### v1.0 — MVP (objectif initial)
+
 - [x] Spécifications complètes
 - [x] Structure repo + CLI de base
 - [x] Scanner AST (JSX + attributs + template literals)
@@ -300,6 +298,7 @@ npx next-auto-i18n missing
 - [x] README complet
 
 ### v1.x — Améliorations
+
 - [x] Commande `sync` (mise à jour incrémentale, merge stable des clés)
 - [x] Commande `missing` (strings manquantes par locale)
 - [x] Commande `extract` (traduction + guide sans réécriture du code source)
@@ -315,11 +314,13 @@ npx next-auto-i18n missing
 - [ ] Support Vite + React sans Next.js
 
 ### v2.0 — Multi-providers
+
 - [ ] Support OpenAI (GPT-4)
 - [ ] Support Google Translate
 - [ ] Config provider interchangeable
 
 ### v3.0 — Écosystème (optionnel)
+
 - [ ] Dashboard web SaaS pour gestion en équipe
 - [ ] CI/CD integration
 - [ ] API publique
@@ -328,15 +329,15 @@ npx next-auto-i18n missing
 
 ## Pourquoi auto-i18n vs les alternatives ?
 
-| Outil | Problème |
-|-------|---------|
-| `next-intl` | Runtime seulement — setup manuel total |
-| `i18next` | Complexe, verbeux, zéro automatisation |
-| `next-translate` | Pas de scan automatique |
-| **auto-i18n** | **Scan + traduction + réécriture en une commande** |
+| Outil            | Problème                                           |
+| ---------------- | -------------------------------------------------- |
+| `next-intl`      | Runtime seulement — setup manuel total             |
+| `i18next`        | Complexe, verbeux, zéro automatisation             |
+| `next-translate` | Pas de scan automatique                            |
+| **auto-i18n**    | **Scan + traduction + réécriture en une commande** |
 
 L'USP (proposition de valeur unique) : **zéro intervention manuelle**. Le dev ne fait rien d'autre qu'entrer sa clé DeepL.
 
 ---
 
-*Document de référence — v1.0 — Projet auto-i18n*
+_Document de référence — v1.0 — Projet auto-i18n_

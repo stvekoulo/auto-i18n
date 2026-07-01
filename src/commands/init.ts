@@ -1,7 +1,8 @@
 /**
- * Commande `init` — installe l'infra next-intl (fichiers additifs), crée la
- * config, génère et traduit les catalogues, puis écrit le guide d'intégration.
- * Ne modifie jamais le code source des composants.
+ * Commande `init` — installe l'infra i18n (fichiers additifs, next-intl ou
+ * react-i18next selon le projet détecté), crée la config, génère et traduit
+ * les catalogues, puis écrit le guide d'intégration. Ne modifie jamais le
+ * code source des composants.
  */
 
 import { resolve, relative, dirname } from 'path';
@@ -22,7 +23,9 @@ export interface RunInitOptions {
   sourceLocale: string;
   targetLocales: string[];
   apiKey: string;
-  /** Provider injectable (tests). Sinon dérivé de la config. */
+  /** Nom du provider de traduction (`deepl`, `google`…). Défaut : `deepl`. */
+  providerName?: string;
+  /** Provider injectable (tests). Sinon dérivé de `providerName`. */
   provider?: TranslationProvider;
   /** Chemin du guide (défaut: i18n-guide.md). */
   guidePath?: string;
@@ -42,18 +45,22 @@ function formatDate(): string {
 export async function runInit(options: RunInitOptions): Promise<RunInitResult> {
   const { projectRoot, sourceLocale, targetLocales, apiKey } = options;
 
-  const config = buildConfig(sourceLocale, targetLocales);
+  const config = buildConfig(sourceLocale, targetLocales, options.providerName);
 
   await ensureGitignore(projectRoot, ['.env.local', '*.backup']);
   await saveApiKeyToEnv(projectRoot, config.apiKeyEnv, apiKey);
   await saveConfig(projectRoot, config);
 
   const project = await detectProject(projectRoot);
-  if (!project.hasNextIntl) {
+  if (project.framework === 'next-intl' && !project.hasNextIntl) {
     logger.warn('next-intl introuvable — installez-le : npm install next-intl');
+  } else if (project.framework === 'react-i18next' && !project.hasReactI18next) {
+    logger.warn('react-i18next introuvable — installez-le : npm install i18next react-i18next');
   }
 
-  logger.step('Infrastructure next-intl');
+  logger.step(
+    project.framework === 'next-intl' ? 'Infrastructure next-intl' : 'Infrastructure react-i18next',
+  );
   const scaffold = await scaffoldProject(project, {
     locales: [sourceLocale, ...targetLocales],
     defaultLocale: sourceLocale,

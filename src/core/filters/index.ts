@@ -30,6 +30,7 @@ export type IgnoreReason =
   | 'blacklist';
 
 /** Mots-clés techniques qui ne doivent jamais être traduits. */
+// prettier-ignore
 const TECHNICAL_KEYWORDS = new Set([
   // CSS display / layout
   'flex', 'grid', 'block', 'inline', 'inline-block', 'inline-flex', 'inline-grid',
@@ -100,10 +101,9 @@ const CSS_FUNC_COLOR_RE = /^(?:rgb|rgba|hsl|hsla|oklch|lch|lab|color)\(/;
 const ABSOLUTE_URL_RE = /^https?:\/\//;
 const PROTOCOL_URL_RE = /^(?:mailto|tel|ftp|data|blob|ws|wss):/;
 const PROTOCOL_RELATIVE_RE = /^\/\//;
-const ROUTE_RE =
-  /^\/[a-zA-Z0-9\-_.[\]@()]*(?:\/[a-zA-Z0-9\-_.[\]@()]*)*(?:\?[^#\s]*)?(?:#\S*)?$/;
+const ROUTE_RE = /^\/[a-zA-Z0-9\-_.[\]@()]*(?:\/[a-zA-Z0-9\-_.[\]@()]*)*(?:\?[^#\s]*)?(?:#\S*)?$/;
 const MIME_TYPE_RE =
-  /^(?:text|image|application|audio|video|font|model|multipart|message)\/[a-z0-9+.\-]+(?:\s*;[^,]*)?$/;
+  /^(?:text|image|application|audio|video|font|model|multipart|message)\/[a-z0-9+.-]+(?:\s*;[^,]*)?$/;
 const ENV_VAR_RE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
 const CSS_TOKEN_RE = /^-?[a-z0-9]+(?:[-:/][a-z0-9.[\]%!@*+()\s]+)*!?$/;
 

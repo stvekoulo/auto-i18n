@@ -24,7 +24,9 @@ describe('core/extraction — kinds', () => {
   });
 
   it('extrait les template literals avec leurs variables', () => {
-    const s = extract('export default function C(){ const name = "x"; return <p>{`Salut ${name}`}</p>; }');
+    const s = extract(
+      'export default function C(){ const name = "x"; return <p>{`Salut ${name}`}</p>; }',
+    );
     const t = valueOf(s, 'Salut {name}');
     expect(t?.kind).toBe('template');
     expect(t?.variables).toEqual(['name']);
@@ -33,6 +35,22 @@ describe('core/extraction — kinds', () => {
   it('ignore le premier argument des appels t()', () => {
     const s = extract('export default function C(){ return <p>{t("deja_clef")}</p>; }');
     expect(valueOf(s, 'deja_clef')).toBeUndefined();
+  });
+
+  it('marque un template avec variable de type compteur comme candidat pluriel', () => {
+    const s = extract(
+      'export default function C(){ const count = 3; return <p>{`${count} articles`}</p>; }',
+    );
+    const t = valueOf(s, '{count} articles');
+    expect(t?.pluralHint).toBe(true);
+  });
+
+  it('ne marque pas un template sans variable de type compteur', () => {
+    const s = extract(
+      'export default function C(){ const name = "x"; return <p>{`Salut ${name}`}</p>; }',
+    );
+    const t = valueOf(s, 'Salut {name}');
+    expect(t?.pluralHint).toBeUndefined();
   });
 });
 
@@ -64,7 +82,9 @@ describe('core/extraction — scope & safety', () => {
 
 describe('core/extraction — detectRuntime', () => {
   it('détecte un composant client', () => {
-    expect(detectRuntime(parseSource("'use client';\nexport default () => null;", 'C.tsx'))).toBe('client');
+    expect(detectRuntime(parseSource("'use client';\nexport default () => null;", 'C.tsx'))).toBe(
+      'client',
+    );
   });
 
   it('considère server par défaut', () => {
@@ -80,6 +100,8 @@ describe('core/scan — filtrage intégré', () => {
       'C.tsx',
     );
     expect(strings.some(s => s.value === 'Valider')).toBe(true);
-    expect(ignored.some(i => i.value === 'https://x.com' && i.reason === 'absolute_url')).toBe(true);
+    expect(ignored.some(i => i.value === 'https://x.com' && i.reason === 'absolute_url')).toBe(
+      true,
+    );
   });
 });

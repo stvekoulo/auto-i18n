@@ -8,15 +8,22 @@ import type { Catalog } from '../../core/types.js';
 
 const SCANNABLE_EXTENSIONS = new Set(['.tsx', '.jsx', '.ts', '.js', '.mjs']);
 
+// prettier-ignore
 const DEFAULT_IGNORE_DIRS = new Set([
   'node_modules', '.next', '.git', 'dist', 'build', 'out',
   '.turbo', '.cache', 'coverage', '.vercel', 'public',
   'i18n', 'messages',
 ]);
 
-/** Composants générés par l'outil — jamais re-scannés. */
-const GENERATED_FILES = new Set(['LanguageSwitcher.tsx', 'LanguageSwitcher.jsx']);
+/** Fichiers générés par l'outil — jamais re-scannés. */
+const GENERATED_FILES = new Set([
+  'LanguageSwitcher.tsx',
+  'LanguageSwitcher.jsx',
+  'i18n.ts',
+  'i18n.js',
+]);
 
+// prettier-ignore
 const CONFIG_FILE_NAMES = new Set([
   'next.config.ts', 'next.config.js', 'next.config.mjs',
   'vite.config.ts', 'vite.config.js',
@@ -30,6 +37,7 @@ const CONFIG_FILE_NAMES = new Set([
 ]);
 
 /** Dossiers racine où il est pertinent de scanner du code applicatif. */
+// prettier-ignore
 const DEFAULT_ROOT_DIRS = new Set([
   'app', 'src', 'pages', 'components', 'lib', 'hooks', 'utils',
   'ui', 'features', 'shared',

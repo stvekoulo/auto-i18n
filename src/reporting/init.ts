@@ -12,6 +12,8 @@ const LABELS: Record<ScaffoldTargetResult['target'], string> = {
   middleware: 'middleware',
   config: 'next.config',
   switcher: 'LanguageSwitcher',
+  'react-i18n-config': 'src/i18n.ts',
+  'react-entry': "point d'entrée (import './i18n')",
 };
 
 export function renderScaffold(projectRoot: string, results: ScaffoldTargetResult[]): void {

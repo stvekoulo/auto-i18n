@@ -18,9 +18,7 @@ export interface BuiltCatalog {
 }
 
 function sortCatalog(catalog: Catalog): Catalog {
-  return Object.fromEntries(
-    Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b)),
-  );
+  return Object.fromEntries(Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b)));
 }
 
 /**

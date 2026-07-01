@@ -22,9 +22,15 @@ export interface AutoI18nConfig {
   ignore: string[];
 }
 
+/** Variable d'env par défaut pour chaque provider connu. */
+export const PROVIDER_API_KEY_ENV: Record<string, string> = {
+  deepl: 'AUTO_I18N_DEEPL_KEY',
+  google: 'AUTO_I18N_GOOGLE_KEY',
+};
+
 const DEFAULTS: Omit<AutoI18nConfig, 'sourceLocale' | 'targetLocales'> = {
   provider: 'deepl',
-  apiKeyEnv: 'AUTO_I18N_DEEPL_KEY',
+  apiKeyEnv: PROVIDER_API_KEY_ENV.deepl,
   messagesDir: './messages',
   ignore: ['node_modules', '.next', '**/*.test.*', '**/*.spec.*'],
 };
@@ -33,7 +39,9 @@ const DEFAULTS: Omit<AutoI18nConfig, 'sourceLocale' | 'targetLocales'> = {
  * Valide les champs requis. Les champs optionnels (provider, apiKeyEnv,
  * messagesDir, ignore) reçoivent leur valeur par défaut au chargement.
  */
-export function isValidConfig(value: unknown): value is Pick<AutoI18nConfig, 'sourceLocale' | 'targetLocales'> {
+export function isValidConfig(
+  value: unknown,
+): value is Pick<AutoI18nConfig, 'sourceLocale' | 'targetLocales'> {
   if (!value || typeof value !== 'object') return false;
   const c = value as Record<string, unknown>;
   return (
@@ -43,8 +51,19 @@ export function isValidConfig(value: unknown): value is Pick<AutoI18nConfig, 'so
   );
 }
 
-export function buildConfig(sourceLocale: string, targetLocales: string[]): AutoI18nConfig {
-  return { $schema: CONFIG_SCHEMA_PATH, sourceLocale, targetLocales, ...DEFAULTS };
+export function buildConfig(
+  sourceLocale: string,
+  targetLocales: string[],
+  provider: string = DEFAULTS.provider,
+): AutoI18nConfig {
+  return {
+    $schema: CONFIG_SCHEMA_PATH,
+    sourceLocale,
+    targetLocales,
+    ...DEFAULTS,
+    provider,
+    apiKeyEnv: PROVIDER_API_KEY_ENV[provider] ?? DEFAULTS.apiKeyEnv,
+  };
 }
 
 export class ConfigNotFoundError extends Error {

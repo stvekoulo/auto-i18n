@@ -18,13 +18,16 @@
   - [init](#init)
   - [sync](#sync)
   - [check](#check)
+- [Câblage automatique (`sync --write`)](#câblage-automatique-sync---write)
 - [Configuration](#configuration)
 - [Comment ça marche](#comment-ça-marche)
 - [Types de strings détectées](#types-de-strings-détectées)
 - [Filtrage (ce qui est ignoré)](#filtrage-ce-qui-est-ignoré)
 - [Strings « à revoir »](#strings--à-revoir-)
+- [Pluriels probables](#pluriels-probables)
 - [Le guide d'intégration](#le-guide-dintégration)
 - [Infrastructure next-intl générée](#infrastructure-next-intl-générée)
+- [Projets React/Vite (react-i18next)](#projets-reactvite-react-i18next)
 - [Traduction et providers](#traduction-et-providers)
 - [Intégration CI](#intégration-ci)
 - [Architecture du code](#architecture-du-code)
@@ -40,23 +43,28 @@ L'erreur que commettent les outils « tout automatiques » est de **réécrire l
 
 1. **Détecter** les textes traduisibles (analyse AST en lecture seule).
 2. **Cataloguer** : générer des clés stables et remplir `messages/<source>.json`.
-3. **Traduire** les langues cibles via DeepL.
-4. **Installer** l'infra `next-intl` manquante (fichiers additifs).
+3. **Traduire** les langues cibles via DeepL ou Google Translate.
+4. **Installer** l'infra i18n manquante (fichiers additifs) — `next-intl` si un `app/layout.tsx` Next.js est détecté, `react-i18next` sinon.
 5. **Expliquer** : produire un guide qui dit où et comment câbler chaque `t()`.
 
-Votre code applicatif n'est jamais modifié. Le seul fichier existant éventuellement touché est `next.config.*` (enrobage `withNextIntl`, avec backup `.backup`), et seulement si sa structure est reconnue.
+Votre code applicatif n'est jamais modifié, à deux mutations ciblées et sauvegardées (`.backup`) près : l'enrobage de `next.config.*` par `withNextIntl` (Next.js), et l'ajout d'un `import './i18n'` au point d'entrée (React/Vite) — chacune seulement si la structure est reconnue, sinon `manual`.
 
 ## Prérequis
 
 - Node.js `>= 18`
-- Next.js App Router (`app/` ou `src/app/`)
-- `next-intl`
-- Une clé API DeepL (Free ou Pro)
+- Next.js App Router avec `next-intl`, **ou** un projet React/Vite avec `react-i18next`
+- Une clé API DeepL (Free ou Pro) ou Google Translate
 
 ## Installation
 
 ```bash
-npm install -D next-auto-i18n next-intl
+# Next.js App Router
+npm install -D next-auto-i18n
+npm install next-intl
+
+# React / Vite
+npm install -D next-auto-i18n
+npm install i18next react-i18next
 ```
 
 ## Démarrage rapide
@@ -74,14 +82,15 @@ Puis ouvrez `i18n-guide.md` et suivez-le pour câbler vos `t()`. Relancez `sync`
 Mise en place complète, à exécuter une fois.
 
 ```bash
-next-auto-i18n init [--source <locale>] [--locale <l1,l2>] [--guide <path>]
+next-auto-i18n init [--source <locale>] [--locale <l1,l2>] [--provider <name>] [--guide <path>]
 ```
 
-| Option | Effet |
-|---|---|
-| `--source <locale>` | Langue source (sinon demandée) |
-| `--locale <l1,l2>` | Langues cibles (sinon demandées) |
-| `--guide <path>` | Chemin du guide (défaut `i18n-guide.md`) |
+| Option              | Effet                                    |
+| ------------------- | ---------------------------------------- |
+| `--source <locale>` | Langue source (sinon demandée)           |
+| `--locale <l1,l2>`  | Langues cibles (sinon demandées)         |
+| `--provider <name>` | Provider de traduction (sinon demandé)   |
+| `--guide <path>`    | Chemin du guide (défaut `i18n-guide.md`) |
 
 Étapes : `.gitignore` (`.env.local`, `*.backup`) → `.env.local` (clé) → `auto-i18n.config.json` → scaffold infra → catalogues + traduction → guide.
 
@@ -105,6 +114,27 @@ next-auto-i18n check [--json]
 
 Rapporte : fichiers scannés, strings détectées (sûres / à revoir), strings non encore cataloguées (un `sync` les ajouterait), traductions manquantes par locale, fichiers non parsables. **Code de sortie 1** s'il reste du travail (non catalogué ou non traduit), 0 sinon.
 
+## Câblage automatique (`sync --write`)
+
+```bash
+next-auto-i18n sync --write [--dry-run]
+```
+
+Par défaut, `next-auto-i18n` ne modifie jamais votre code (modèle zéro-mutation). `--write` est une option **opt-in** qui câble mécaniquement en `t()` le sous-ensemble des strings `safety: 'safe'` pour lequel c'est prouvable sans ambiguïté. C'est délibérément restrictif :
+
+| Condition                                                                            | Comportement                                                                                                                 |
+| ------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| Composant client (`'use client'`)                                                    | Toujours éligible → injecte `import { useTranslations } from 'next-intl'` et `const t = useTranslations();`                  |
+| Composant serveur déjà `async`                                                       | Éligible → injecte `import { getTranslations } from 'next-intl/server'` et `const t = await getTranslations();`              |
+| Composant serveur **non** `async`                                                    | Ignoré (`server_not_async`) — convertir une fonction sync en async automatiquement est trop risqué pour les signatures/types |
+| Fonction hôte non identifiable (pas PascalCase, pas `useXxx`, pas export par défaut) | Ignoré (`no_host`)                                                                                                           |
+| `t` déjà présent dans le scope, mais pas issu de `useTranslations`/`getTranslations` | Ignoré (`t_conflict`) — collision, pas d'écrasement                                                                          |
+| Fonction fléchée à corps concis (`() => <div/>` sans bloc)                           | Ignoré (`concise_body`)                                                                                                      |
+
+Dans tous les cas ignorés, la string reste `safe` dans le guide — rien n'est perdu, juste laissé au câblage manuel.
+
+Mécanique interne : les édits sont calculés comme des remplacements de plage `[start, end)` sur le texte source d'origine (jamais de mutation d'AST en direct), puis appliqués en une seule passe. `--dry-run` calcule les mêmes édits et affiche un diff coloré sans toucher au disque ; sans `--dry-run`, chaque fichier modifié est d'abord sauvegardé en `<fichier>.backup`. Le procédé est idempotent : un `t()` déjà en place n'est jamais re-câblé (l'extraction ignore le premier argument des appels `t()`/`translate()`).
+
 ## Configuration
 
 `auto-i18n.config.json` à la racine. Seuls `sourceLocale` et `targetLocales` sont requis ; les autres champs ont des défauts.
@@ -120,14 +150,14 @@ Rapporte : fichiers scannés, strings détectées (sûres / à revoir), strings 
 }
 ```
 
-| Champ | Défaut | Rôle |
-|---|---|---|
-| `sourceLocale` | — | Langue source (requis) |
-| `targetLocales` | — | Langues cibles (requis) |
-| `provider` | `deepl` | Provider de traduction |
-| `apiKeyEnv` | `AUTO_I18N_DEEPL_KEY` | Variable d'env contenant la clé |
-| `messagesDir` | `./messages` | Dossier des catalogues |
-| `ignore` | voir ci-dessus | Patterns glob à exclure du scan |
+| Champ           | Défaut                | Rôle                                         |
+| --------------- | --------------------- | -------------------------------------------- |
+| `sourceLocale`  | —                     | Langue source (requis)                       |
+| `targetLocales` | —                     | Langues cibles (requis)                      |
+| `provider`      | `deepl`               | Provider de traduction (`deepl` ou `google`) |
+| `apiKeyEnv`     | `AUTO_I18N_DEEPL_KEY` | Variable d'env contenant la clé              |
+| `messagesDir`   | `./messages`          | Dossier des catalogues                       |
+| `ignore`        | voir ci-dessus        | Patterns glob à exclure du scan              |
 
 ## Comment ça marche
 
@@ -152,13 +182,13 @@ Le scan ne descend que dans les dossiers applicatifs courants (`app`, `src`, `co
 
 ## Types de strings détectées
 
-| Type | Exemple | Câblage suggéré |
-|---|---|---|
-| Texte JSX | `<p>Bonjour</p>` | `{t("bonjour")}` |
-| Attribut traduisible | `placeholder="Chercher"` | `{t("chercher")}` |
-| Template literal | `` `Bienvenue` `` | `t("bienvenue")` |
-| Template avec variables | `` `Salut ${name}` `` | `t("salut_name", { name })` |
-| String literal | `const label = "Valider"` | `t("valider")` |
+| Type                    | Exemple                   | Câblage suggéré             |
+| ----------------------- | ------------------------- | --------------------------- |
+| Texte JSX               | `<p>Bonjour</p>`          | `{t("bonjour")}`            |
+| Attribut traduisible    | `placeholder="Chercher"`  | `{t("chercher")}`           |
+| Template literal        | `` `Bienvenue` ``         | `t("bienvenue")`            |
+| Template avec variables | `` `Salut ${name}` ``     | `t("salut_name", { name })` |
+| String literal          | `const label = "Valider"` | `t("valider")`              |
 
 Attributs traduisibles : `placeholder`, `alt`, `title`, `aria-label`, `aria-placeholder`, `aria-description`, `aria-details`, `label`, `content`.
 
@@ -175,6 +205,14 @@ Deux cas ne sont pas marqués « sûrs à câbler automatiquement » :
 
 Ces strings sont quand même **détectées, cataloguées et traduites** ; elles sont simplement signalées dans le guide avec une note.
 
+## Pluriels probables
+
+Un template literal dont la variable interpolée ressemble à un compteur (`count`, `total`, `num`, `qty`, `quantity`, `amount`, `length`…) — par exemple `` `${count} articles` `` — est signalé comme candidat pluriel plutôt que traité comme un texte figé. `t("clé", { count })` fonctionne toujours, mais `next-intl` sait gérer l'accord singulier/pluriel via ICU MessageFormat ; le guide inclut une section dédiée avec une suggestion prête à adapter :
+
+```json
+"count_articles": "{count, plural, one {# ...} other {# articles}}"
+```
+
 ## Le guide d'intégration
 
 Généré par `init` (et reposant sur les mêmes données que `sync`). Il contient :
@@ -189,19 +227,33 @@ Généré par `init` (et reposant sur les mêmes données que `sync`). Il contie
 
 `init` crée uniquement ce qui est **absent** :
 
-| Cible | Fichier | Statut possible |
-|---|---|---|
-| Routing | `i18n/routing.ts` (ou `src/i18n/`) | créé / déjà présent |
-| Request config | `i18n/request.ts` | créé / déjà présent |
-| Middleware | `middleware.ts` (ou `proxy.ts` si Next ≥ 16) | créé / déjà présent |
-| Plugin Next | `next.config.*` | enrobé (backup) / déjà présent / manuel |
-| Switcher | `components/LanguageSwitcher.tsx` | créé / déjà présent |
+| Cible          | Fichier                                      | Statut possible                         |
+| -------------- | -------------------------------------------- | --------------------------------------- |
+| Routing        | `i18n/routing.ts` (ou `src/i18n/`)           | créé / déjà présent                     |
+| Request config | `i18n/request.ts`                            | créé / déjà présent                     |
+| Middleware     | `middleware.ts` (ou `proxy.ts` si Next ≥ 16) | créé / déjà présent                     |
+| Plugin Next    | `next.config.*`                              | enrobé (backup) / déjà présent / manuel |
+| Switcher       | `components/LanguageSwitcher.tsx`            | créé / déjà présent                     |
 
 `app/[locale]/` n'est **jamais** restructuré automatiquement : la marche à suivre est dans le guide.
 
+## Projets React/Vite (react-i18next)
+
+Framework détecté automatiquement : si aucun `app/layout.tsx` (ni `src/app/layout.tsx`) n'est trouvé, `init` scaffold `react-i18next` au lieu de `next-intl`. Aucune option à passer.
+
+| Cible          | Fichier                                        | Statut possible                                |
+| -------------- | ---------------------------------------------- | ---------------------------------------------- |
+| Config i18n    | `src/i18n.ts`                                  | créé / déjà présent                            |
+| Point d'entrée | `src/main.tsx` (ou `main.ts(x)`/`index.ts(x)`) | import ajouté (backup) / déjà présent / manuel |
+| Switcher       | `src/components/LanguageSwitcher.tsx`          | créé / déjà présent                            |
+
+`src/i18n.ts` importe directement chaque `messages/<locale>.json` (pas de chargement HTTP paresseux) et appelle `i18next.use(initReactI18next).init({ resources, lng, fallbackLng })`. Ce fichier, comme `LanguageSwitcher.tsx`, n'est jamais re-scanné par la suite (évite le bruit des codes de langue dans les catalogues).
+
+**Limite connue** : le guide d'intégration reste écrit pour l'API next-intl (`useTranslations`/`getTranslations`). Sur un projet react-i18next, le tableau du guide (ligne, texte détecté, clé) reste valable, mais remplacez le remplacement suggéré par `const { t } = useTranslation();` puis `t("clé")`. `sync --write` est désactivé sur un projet détecté react-i18next (le codemod injecte des imports `next-intl`, ce qui casserait un projet qui ne l'a pas) — tout reste dans le guide.
+
 ## Traduction et providers
 
-DeepL est le provider par défaut. Les placeholders `{var}` sont protégés par des balises XML ignorées par DeepL, puis restaurés ; toute traduction qui perdrait un placeholder fait échouer proprement la locale concernée (sans écraser le fichier existant). Les erreurs réseau / 429 / 5xx sont réessayées (3 tentatives) ; 403 / quota échouent immédiatement.
+DeepL est le provider par défaut ; Google Translate (`"provider": "google"`) est aussi supporté. Les deux protègent les placeholders `{var}` (balises XML pour DeepL, `<span translate="no">` en HTML pour Google) avant traduction, puis les restaurent ; toute traduction qui perdrait un placeholder fait échouer proprement la locale concernée (sans écraser le fichier existant). Les erreurs réseau / 429 / 5xx sont réessayées (3 tentatives) ; 403 (auth/quota) / 400 échouent immédiatement.
 
 Le provider est derrière l'interface `TranslationProvider` (`src/adapters/translation`). Ajouter un provider revient à l'enregistrer dans `createProvider` sans toucher au reste.
 
@@ -218,9 +270,9 @@ Le provider est derrière l'interface `TranslationProvider` (`src/adapters/trans
 
 ```
 src/
-  core/        pur, zéro I/O — extraction, filters, keys, catalog, scan, check, guide
-  adapters/    I/O — fs, project (détection), scaffold, translation (provider + deepl)
-  pipeline/    orchestration — scan, sync, translate
+  core/        pur, zéro I/O — extraction, filters, keys, catalog, scan, check, guide, write
+  adapters/    I/O — fs, project (détection), scaffold, translation (deepl, google)
+  pipeline/    orchestration — scan, sync, translate, write
   commands/    init, sync, check
   reporting/   rendu terminal + JSON
   config/      chargement/validation de la config
@@ -232,14 +284,14 @@ Le `core` n'importe aucun module d'I/O et se teste sans système de fichiers ni 
 
 ## Dépannage
 
-| Symptôme | Cause / solution |
-|---|---|
-| `Configuration introuvable` | Lancez `init` d'abord. |
-| `Clé API introuvable` | Renseignez `AUTO_I18N_DEEPL_KEY` dans `.env.local`. |
+| Symptôme                        | Cause / solution                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------ |
+| `Configuration introuvable`     | Lancez `init` d'abord.                                                         |
+| `Clé API introuvable`           | Renseignez `AUTO_I18N_DEEPL_KEY` dans `.env.local`.                            |
 | `next.config — action manuelle` | Structure non reconnue : enrobez votre export avec `withNextIntl()` à la main. |
-| Une string n'est pas détectée | Vérifiez qu'elle n'est pas filtrée (technique/CSS) ni déjà dans un `t()`. |
-| Une string est « à revoir » | Voir [Strings « à revoir »](#strings--à-revoir-). |
-| Fichier « non parsable » | Syntaxe invalide ou non supportée : le fichier est ignoré sans modification. |
+| Une string n'est pas détectée   | Vérifiez qu'elle n'est pas filtrée (technique/CSS) ni déjà dans un `t()`.      |
+| Une string est « à revoir »     | Voir [Strings « à revoir »](#strings--à-revoir-).                              |
+| Fichier « non parsable »        | Syntaxe invalide ou non supportée : le fichier est ignoré sans modification.   |
 
 ---
 

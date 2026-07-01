@@ -48,7 +48,12 @@ export async function runSync(input: RunSyncInput): Promise<SyncReport> {
   const existingSource = await readCatalog(sourcePath);
 
   const values = scan.strings.map(s => s.value);
-  const { catalog: sourceCatalog, keyMap, added, reused } = buildSourceCatalog(values, existingSource);
+  const {
+    catalog: sourceCatalog,
+    keyMap,
+    added,
+    reused,
+  } = buildSourceCatalog(values, existingSource);
   await writeCatalog(sourcePath, sourceCatalog);
 
   const existingTargets: Record<string, Catalog> = {};
@@ -74,7 +79,10 @@ export async function runSync(input: RunSyncInput): Promise<SyncReport> {
   const reviewStrings: ExtractedString[] = [];
   for (const s of scan.strings) {
     if (s.safety === 'safe') safe++;
-    else { review++; reviewStrings.push(s); }
+    else {
+      review++;
+      reviewStrings.push(s);
+    }
   }
 
   return {

@@ -31,7 +31,7 @@
     "provider": {
       "type": "string",
       "description": "Provider de traduction utilisé.",
-      "enum": ["deepl"],
+      "enum": ["deepl", "google"],
       "default": "deepl"
     },
     "apiKeyEnv": {

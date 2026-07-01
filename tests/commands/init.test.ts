@@ -36,7 +36,7 @@ afterEach(async () => {
 });
 
 describe('commands/init — runInit', () => {
-  it('installe l\'infra, traduit et écrit le guide', async () => {
+  it("installe l'infra, traduit et écrit le guide", async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const dir = await makeProject({
       'app/layout.tsx': 'export default function L({children}){ return children; }',

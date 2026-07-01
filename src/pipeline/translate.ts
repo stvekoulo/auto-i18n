@@ -66,8 +66,12 @@ export async function translateCatalogs(
   input: TranslateCatalogsInput,
 ): Promise<TranslateCatalogsResult> {
   const {
-    provider, sourceLocale, sourceCatalog,
-    targetLocales, existingTargets, maxRetries = 3,
+    provider,
+    sourceLocale,
+    sourceCatalog,
+    targetLocales,
+    existingTargets,
+    maxRetries = 3,
   } = input;
 
   const byLocale: LocaleTranslation[] = [];
@@ -90,7 +94,13 @@ export async function translateCatalogs(
 
     try {
       const texts = keys.map(k => sourceCatalog[k]);
-      const translations = await translateWithRetry(provider, texts, sourceLocale, locale, maxRetries);
+      const translations = await translateWithRetry(
+        provider,
+        texts,
+        sourceLocale,
+        locale,
+        maxRetries,
+      );
 
       const fresh: Catalog = {};
       for (let i = 0; i < keys.length; i++) {
@@ -99,7 +109,8 @@ export async function translateCatalogs(
         if (!placeholdersMatch(src, out)) {
           throw new TranslationError(
             `Placeholders incohérents pour "${keys[i]}" (${locale}).`,
-            'provider', false,
+            'provider',
+            false,
           );
         }
         fresh[keys[i]] = out;
@@ -113,9 +124,12 @@ export async function translateCatalogs(
       });
       totalTranslated += keys.length;
     } catch (error) {
-      const kind = error instanceof TranslationError
-        ? (/[Pp]laceholder/.test(error.message) ? 'placeholder' : error.kind)
-        : 'provider';
+      const kind =
+        error instanceof TranslationError
+          ? /[Pp]laceholder/.test(error.message)
+            ? 'placeholder'
+            : error.kind
+          : 'provider';
       byLocale.push({
         locale,
         catalog: mergeTranslations(sourceCatalog, existing, {}),

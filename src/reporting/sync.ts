@@ -11,19 +11,25 @@ const MAX_LIST = 15;
 export function renderSyncReport(projectRoot: string, report: SyncReport): void {
   logger.success(
     `${report.detected.total} string${report.detected.total > 1 ? 's' : ''} détectée${report.detected.total > 1 ? 's' : ''} ` +
-    `(${report.detected.safe} sûre${report.detected.safe > 1 ? 's' : ''}, ${report.detected.review} à revoir) ` +
-    `dans ${report.filesScanned} fichier${report.filesScanned > 1 ? 's' : ''}`,
+      `(${report.detected.safe} sûre${report.detected.safe > 1 ? 's' : ''}, ${report.detected.review} à revoir) ` +
+      `dans ${report.filesScanned} fichier${report.filesScanned > 1 ? 's' : ''}`,
   );
 
-  logger.success(`${report.sourceKeyCount} clé${report.sourceKeyCount > 1 ? 's' : ''} au catalogue source`);
+  logger.success(
+    `${report.sourceKeyCount} clé${report.sourceKeyCount > 1 ? 's' : ''} au catalogue source`,
+  );
   if (report.addedKeys.length > 0) {
-    logger.dim(`${report.addedKeys.length} nouvelle${report.addedKeys.length > 1 ? 's' : ''}, ${report.reusedKeys.length} réutilisée${report.reusedKeys.length > 1 ? 's' : ''}`);
+    logger.dim(
+      `${report.addedKeys.length} nouvelle${report.addedKeys.length > 1 ? 's' : ''}, ${report.reusedKeys.length} réutilisée${report.reusedKeys.length > 1 ? 's' : ''}`,
+    );
   }
 
   for (const result of report.translation.byLocale) {
     switch (result.status) {
       case 'updated':
-        logger.success(`${result.locale} — ${result.translated} string${result.translated > 1 ? 's' : ''} traduite${result.translated > 1 ? 's' : ''}`);
+        logger.success(
+          `${result.locale} — ${result.translated} string${result.translated > 1 ? 's' : ''} traduite${result.translated > 1 ? 's' : ''}`,
+        );
         break;
       case 'up_to_date':
         logger.dim(`${result.locale} — déjà à jour`);
@@ -36,7 +42,9 @@ export function renderSyncReport(projectRoot: string, report: SyncReport): void 
 
   if (report.detected.review > 0) {
     logger.blank();
-    logger.warn(`${report.detected.review} string${report.detected.review > 1 ? 's' : ''} à revoir manuellement (module-scope ou JSX ambigu)`);
+    logger.warn(
+      `${report.detected.review} string${report.detected.review > 1 ? 's' : ''} à revoir manuellement (module-scope ou JSX ambigu)`,
+    );
     for (const s of report.reviewStrings.slice(0, MAX_LIST)) {
       logger.dim(`  ${relative(projectRoot, s.file)}:${s.line} — "${s.value}" (${s.reviewReason})`);
     }
@@ -46,7 +54,9 @@ export function renderSyncReport(projectRoot: string, report: SyncReport): void 
   }
 
   if (report.parseErrors.length > 0) {
-    logger.warn(`${report.parseErrors.length} fichier${report.parseErrors.length > 1 ? 's' : ''} non parsable${report.parseErrors.length > 1 ? 's' : ''} (ignoré${report.parseErrors.length > 1 ? 's' : ''})`);
+    logger.warn(
+      `${report.parseErrors.length} fichier${report.parseErrors.length > 1 ? 's' : ''} non parsable${report.parseErrors.length > 1 ? 's' : ''} (ignoré${report.parseErrors.length > 1 ? 's' : ''})`,
+    );
   }
 
   logger.blank();
