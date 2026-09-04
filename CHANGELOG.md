@@ -39,8 +39,10 @@ Passe de durcissement : correction de défauts qui cassaient ou corrompaient les
 - **Une seule traversée d'AST** par fichier au lieu de cinq (285 ms → 81 ms sur 300 fichiers).
 - **`sync` n'exige une clé API que s'il y a du texte à traduire** : un projet déjà complet se synchronise sans secret.
 - Catalogues cibles lus et écrits en parallèle.
-- Dépendances : `ora` supprimée (déclarée, jamais importée), `inquirer` remplacée par `@inquirer/prompts` (typée nativement — le shim `src/types/inquirer.d.ts` disparaît), `ts-morph` 22 → 28 (TypeScript embarqué 5.4 → 6.0), `chalk` / `commander` / `dotenv` / `diff` aux majeures courantes. **Arbre de production : 137 → 58 paquets.**
+- Dépendances : `ora` supprimée (déclarée, jamais importée), `inquirer` remplacée par `@inquirer/prompts` (typée nativement — le shim `src/types/inquirer.d.ts` disparaît), `ts-morph` 22 → 28 (TypeScript embarqué 5.4 → 6.0), `chalk` / `commander` / `dotenv` / `diff` aux majeures courantes. **Arbre de production : 95 → 40 paquets** (installation propre des seules dépendances publiées, peers optionnels exclus des deux côtés).
 - Le champ `$schema` des configs générées pointe vers l'URL publiée, le chemin `node_modules` ne résolvant ni sous Yarn PnP ni depuis un paquet hissé en monorepo.
+- Outillage de développement : ESLint 9 → 10, `typescript-eslint` 8.69, `eslint-config-prettier` 9 → 10, Vitest 4 → 5, TypeScript 5.9 → 6.0.3 — la même version que celle embarquée par ts-morph 28, donc le compilateur qui construit le paquet et le parseur qui lit votre code s'accordent. TypeScript 7 a été essayé puis écarté : `typescript-eslint` refuse toute majeure ≥ 7 (typescript-eslint#10940).
+- **Couverture de tests mesurée** (`npm run test:coverage`) avec des seuils vérifiés en CI. 105 → 186 tests : provider DeepL (le mapping d'erreurs, `Retry-After` et le masquage de la clé n'avaient aucun test là où Google en avait), rendu terminal, et le pool de workers.
 
 ### Added
 
