@@ -44,6 +44,7 @@ Passe de durcissement : correction de défauts qui cassaient ou corrompaient les
 
 ### Added
 
+- **Pool de workers pour le scan** (`node:worker_threads`), activé au-delà de 3 500 fichiers. Le parsing est le seul travail vraiment gourmand en CPU du package, et une concurrence `async` ne le répartit sur aucun cœur supplémentaire. Le seuil et le nombre de workers viennent du banc d'essai, pas de l'intuition : démarrer un worker y recharge ts-morph (~400 ms), coût que le parallélisme ne rattrape qu'à partir de plusieurs milliers de fichiers — 0,76x à 1 500 fichiers, 1,05x à 3 500, 1,25x à 6 000. En dessous du seuil le pool ne démarre pas, donc aucun projet ne ralentit. `scanProject` accepte `workers` et `workerPath` ; `ProjectScanResult.workersUsed` dit quel régime a servi.
 - **`rootDirs`** en configuration : dossiers de premier niveau à scanner. La liste était figée, donc un projet organisé sous `modules/` ou `views/` ne scannait rien tout en signalant un succès.
 - **CI GitHub Actions** (lint, format, types, tests, build, `npm pack` sur Node 22 et 24) et workflow de publication avec attestation de provenance npm.
 - **`SECURITY.md`**, `.nvmrc`.

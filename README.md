@@ -16,6 +16,7 @@
 - **Câblage automatique opt-in, jamais aveugle.** `sync --write` ne câble que les cas prouvables sans ambiguïté (voir [Câblage automatique](#câblage-automatique-sync---write)) ; tout le reste va dans le guide.
 - **Fichiers additifs uniquement.** L'infra `next-intl` n'est créée que si elle est absente ; rien n'est écrasé.
 - **Déterministe et idempotent.** Mêmes entrées → mêmes clés. Les exécutions répétées sont sûres.
+- **Optimisé sur mesure, pas au jugé.** Le scan bascule sur un pool de workers au-delà de 3 500 fichiers, seuil issu du banc d'essai ; en dessous, le thread principal reste plus rapide et le pool ne démarre pas.
 - **Conservateur sur l'ambigu.** Les strings hors composant ou au JSX sensible sont signalées « à revoir », pas forcées.
 
 ## Installation

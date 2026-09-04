@@ -193,6 +193,27 @@ catalogue source : clés stables + merge (core/catalog, core/keys)
 
 Le scan ne descend que dans les dossiers applicatifs courants (`app`, `src`, `components`, `lib`, `hooks`, `utils`, `ui`, `features`, `shared`, `pages`) et ignore `node_modules`, `.next`, `dist`, `messages`, `i18n`, etc.
 
+## Performance du scan
+
+Le scan est le seul travail réellement gourmand en CPU du package : lire un fichier coûte une microseconde, le parser en coûte mille. Deux régimes, choisis automatiquement, pour un résultat identique :
+
+- **En dessous de 3 500 fichiers** — concurrence `async` bornée sur le thread principal.
+- **Au-delà** — un pool de workers (`node:worker_threads`), à condition que la machine ait assez de cœurs.
+
+Le seuil vient de la mesure, pas de l'intuition : démarrer un worker y recharge ts-morph (environ 400 ms, 570 ms pour quatre en parallèle), coût que le parallélisme ne rattrape qu'à partir de plusieurs milliers de fichiers. Sur 8 threads logiques, avec un fichier de composant représentatif :
+
+| Fichiers | Thread principal | 3 workers | Rapport |
+| -------: | ---------------: | --------: | ------: |
+|     1500 |          1698 ms |   2226 ms |   0,76x |
+|     2500 |          3038 ms |   3484 ms |   0,87x |
+|     3500 |          3854 ms |   3664 ms |   1,05x |
+|     4500 |          5260 ms |   4407 ms |   1,19x |
+|     6000 |          6677 ms |   5346 ms |   1,25x |
+
+Le nombre de workers vise les cœurs **physiques** moins celui du thread principal : le parsing sature la bande passante mémoire et ne tire presque rien de l'hyperthreading. Sur 6 000 fichiers et 8 threads logiques : 3 workers 5 346 ms, 2 workers 6 065 ms, 4 workers 6 184 ms.
+
+En usage programmatique, `scanProject` accepte `workers` (`0` force le thread principal) et `workerPath` (pour un empaqueteur qui déplace les fichiers émis). `ProjectScanResult.workersUsed` indique le régime effectivement employé.
+
 ## Types de strings détectées
 
 | Type                    | Exemple                   | Câblage suggéré             |

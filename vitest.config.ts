@@ -20,6 +20,11 @@ export default defineConfig({
         // Ré-exports uniquement.
         'src/index.ts',
         'src/core/index.ts',
+        // Point d'entrée d'un thread : il s'exécute hors du processus
+        // instrumenté, donc invisible pour v8. Sa logique vit dans
+        // `scan-file.ts`, couverte, et son câblage est exercé de bout en bout
+        // par les tests du pool réel.
+        'src/adapters/worker/scan-worker.ts',
       ],
       // Seuils calés juste sous le niveau atteint : ils attrapent une
       // régression sans casser la CI au premier ajout de code.

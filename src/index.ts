@@ -24,7 +24,7 @@ export {
 } from './config/index.js';
 
 // Pipelines (orchestration)
-export { scanProject, type ProjectScanResult } from './pipeline/scan.js';
+export { scanProject, type ProjectScanResult, type ScanProjectOptions } from './pipeline/scan.js';
 export { runSync, type SyncReport } from './pipeline/sync.js';
 export {
   translateCatalogs,
