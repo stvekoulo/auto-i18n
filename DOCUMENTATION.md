@@ -146,18 +146,31 @@ Mécanique interne : les édits sont calculés comme des remplacements de plage 
   "provider": "deepl",
   "apiKeyEnv": "AUTO_I18N_DEEPL_KEY",
   "messagesDir": "./messages",
-  "ignore": ["node_modules", ".next", "**/*.test.*", "**/*.spec.*"]
+  "ignore": ["node_modules", ".next", "**/*.test.*", "**/*.spec.*"],
+  "rootDirs": ["app", "src", "components"]
 }
 ```
 
-| Champ           | Défaut                | Rôle                                         |
-| --------------- | --------------------- | -------------------------------------------- |
-| `sourceLocale`  | —                     | Langue source (requis)                       |
-| `targetLocales` | —                     | Langues cibles (requis)                      |
-| `provider`      | `deepl`               | Provider de traduction (`deepl` ou `google`) |
-| `apiKeyEnv`     | `AUTO_I18N_DEEPL_KEY` | Variable d'env contenant la clé              |
-| `messagesDir`   | `./messages`          | Dossier des catalogues                       |
-| `ignore`        | voir ci-dessus        | Patterns glob à exclure du scan              |
+| Champ           | Défaut                | Rôle                                                |
+| --------------- | --------------------- | --------------------------------------------------- |
+| `sourceLocale`  | —                     | Langue source (requis)                              |
+| `targetLocales` | —                     | Langues cibles (requis)                             |
+| `provider`      | `deepl`               | Provider de traduction (`deepl` ou `google`)        |
+| `apiKeyEnv`     | `AUTO_I18N_DEEPL_KEY` | Variable d'env contenant la clé                     |
+| `messagesDir`   | `./messages`          | Dossier des catalogues (doit rester dans le projet) |
+| `ignore`        | voir ci-dessus        | Patterns glob à exclure du scan                     |
+| `rootDirs`      | liste intégrée        | Dossiers de premier niveau à scanner                |
+
+### Validation
+
+La configuration est validée à chaque chargement et **tous** les problèmes sont rapportés en une passe (`ConfigInvalidError`) :
+
+- champ inconnu (une faute de frappe comme `messageDir` n'est plus ignorée en silence) ;
+- `sourceLocale` / `targetLocales` qui ne sont pas des étiquettes de langue (`fr`, `pt-BR`, `zh-Hans-CN`) ;
+- doublon dans `targetLocales`, ou langue source présente dans les cibles ;
+- `provider` hors de `deepl` / `google` ;
+- `apiKeyEnv` qui n'est pas un nom de variable d'environnement valide ;
+- `messagesDir` absolu ou remontant hors de la racine du projet.
 
 ## Comment ça marche
 
@@ -253,7 +266,9 @@ Framework détecté automatiquement : si aucun `app/layout.tsx` (ni `src/app/lay
 
 ## Traduction et providers
 
-DeepL est le provider par défaut ; Google Translate (`"provider": "google"`) est aussi supporté. Les deux protègent les placeholders `{var}` (balises XML pour DeepL, `<span translate="no">` en HTML pour Google) avant traduction, puis les restaurent ; toute traduction qui perdrait un placeholder fait échouer proprement la locale concernée (sans écraser le fichier existant). Les erreurs réseau / 429 / 5xx sont réessayées (3 tentatives) ; 403 (auth/quota) / 400 échouent immédiatement.
+DeepL est le provider par défaut ; Google Translate (`"provider": "google"`) est aussi supporté. Les deux protègent les placeholders `{var}` (balises XML pour DeepL, `<span translate="no">` en HTML pour Google) avant traduction, puis les restaurent ; toute traduction qui perdrait un placeholder fait échouer proprement la locale concernée (sans écraser le fichier existant). Les erreurs réseau / 429 / 5xx sont réessayées (3 tentatives, backoff exponentiel avec jitter, en respectant l'en-tête `Retry-After` s'il est fourni) ; 403 (auth/quota) / 400 échouent immédiatement. Chaque requête est abandonnée au bout de 30 secondes. La clé API voyage en en-tête HTTP et est masquée dans tout message d'erreur reprenant une réponse du provider.
+
+Les locales sont traduites en parallèle (4 à la fois). Si rien n'est à traduire, aucune clé API n'est requise : un projet déjà complet se synchronise sans secret.
 
 Le provider est derrière l'interface `TranslationProvider` (`src/adapters/translation`). Ajouter un provider revient à l'enregistrer dans `createProvider` sans toucher au reste.
 
@@ -277,21 +292,24 @@ src/
   reporting/   rendu terminal + JSON
   config/      chargement/validation de la config
   cli/         entrée commander + prompts
-  utils/       logger, env
+  utils/       logger, env, concurrency
 ```
 
 Le `core` n'importe aucun module d'I/O et se teste sans système de fichiers ni réseau. Les pipelines combinent core + adapters ; les commandes ajoutent le chargement de config/env et le rendu.
 
 ## Dépannage
 
-| Symptôme                        | Cause / solution                                                               |
-| ------------------------------- | ------------------------------------------------------------------------------ |
-| `Configuration introuvable`     | Lancez `init` d'abord.                                                         |
-| `Clé API introuvable`           | Renseignez `AUTO_I18N_DEEPL_KEY` dans `.env.local`.                            |
-| `next.config — action manuelle` | Structure non reconnue : enrobez votre export avec `withNextIntl()` à la main. |
-| Une string n'est pas détectée   | Vérifiez qu'elle n'est pas filtrée (technique/CSS) ni déjà dans un `t()`.      |
-| Une string est « à revoir »     | Voir [Strings « à revoir »](#strings--à-revoir-).                              |
-| Fichier « non parsable »        | Syntaxe invalide ou non supportée : le fichier est ignoré sans modification.   |
+| Symptôme                        | Cause / solution                                                                                                |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `Configuration introuvable`     | Lancez `init` d'abord.                                                                                          |
+| `Clé API introuvable`           | Renseignez `AUTO_I18N_DEEPL_KEY` dans `.env.local`.                                                             |
+| `next.config — action manuelle` | Structure non reconnue : enrobez votre export avec `withNextIntl()` à la main.                                  |
+| Une string n'est pas détectée   | Vérifiez qu'elle n'est pas filtrée (technique/CSS) ni déjà dans un `t()`.                                       |
+| Une string est « à revoir »     | Voir [Strings « à revoir »](#strings--à-revoir-).                                                               |
+| Fichier « non parsable »        | Syntaxe invalide : le fichier est ignoré sans modification et signalé par `check`.                              |
+| `Configuration invalide`        | Corrigez les points listés dans le message (tous sont rapportés d'un coup).                                     |
+| `Catalogue illisible`           | Un `messages/*.json` existant n'est pas du JSON à plat. Corrigez ou supprimez-le : l'outil refuse de l'écraser. |
+| Scan qui ne trouve aucun texte  | Votre code n'est pas sous un dossier scanné par défaut : renseignez `rootDirs`.                                 |
 
 ---
 

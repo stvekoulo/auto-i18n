@@ -8,7 +8,7 @@
 
 `next-auto-i18n` scanne votre projet, extrait les chaînes traduisibles, génère des clés stables, remplit et traduit les catalogues `messages/*.json`, et met en place l'infrastructure i18n (fichiers additifs — `next-intl` sur Next.js, `react-i18next` sinon). Plutôt que de muter votre JSX par défaut — source de la plupart des erreurs — il produit un **guide d'intégration précis** qui vous dit, fichier par fichier et ligne par ligne, comment câbler chaque `t()`. Pour les cas non ambigus (composant client, ou composant serveur déjà `async`), `sync --write` peut aussi câbler ces `t()` à votre place, en toute sécurité.
 
-> **Vous venez de la 0.x ?** Cette `1.0` est une refonte majeure (le code source n'est plus réécrit). Voir le [guide de migration](./MIGRATION.md).
+> **Vous venez de la 1.x ou de la 0.x ?** La `2.0` change le nommage des variables d'interpolation, exige Node 22.12 et refuse une configuration invalide. Voir le [guide de migration](./MIGRATION.md).
 
 ## Philosophie
 
@@ -32,7 +32,7 @@ npm install i18next react-i18next
 
 ## Prérequis
 
-- Node.js `>= 18`
+- Node.js `>= 22.12`
 - Un projet Next.js App Router (`next-intl`) **ou** un projet React/Vite (`react-i18next`)
 - Une clé API DeepL ([gratuite ici](https://www.deepl.com/pro-api)) ou Google Translate ([voir la doc](https://cloud.google.com/translate/docs/setup))
 
@@ -101,17 +101,22 @@ next-auto-i18n check --json
 
 ```json
 {
-  "$schema": "./node_modules/next-auto-i18n/schema/auto-i18n.config.schema.json",
+  "$schema": "https://raw.githubusercontent.com/stvekoulo/next-auto-i18n/main/schema/auto-i18n.config.schema.json",
   "sourceLocale": "fr",
   "targetLocales": ["en", "es"],
   "provider": "deepl",
   "apiKeyEnv": "AUTO_I18N_DEEPL_KEY",
   "messagesDir": "./messages",
-  "ignore": ["node_modules", ".next", "**/*.test.*", "**/*.spec.*"]
+  "ignore": ["node_modules", ".next", "**/*.test.*", "**/*.spec.*"],
+  "rootDirs": ["app", "src", "components"]
 }
 ```
 
 `provider` accepte `"deepl"` ou `"google"` (Google Translate).
+
+`rootDirs` liste les dossiers de premier niveau à scanner. Sans ce champ, la liste par défaut est utilisée (`app`, `src`, `pages`, `components`, `lib`, `hooks`, `utils`, `ui`, `features`, `shared`) : **renseignez-le si votre code applicatif vit ailleurs**, sinon le scan ne trouvera rien.
+
+La configuration est validée au chargement — champ inconnu, code de langue invalide, langue à la fois source et cible, provider inconnu, `messagesDir` sortant du projet : tous les problèmes sont listés d'un coup et la commande s'arrête.
 
 Le champ `$schema` (ajouté automatiquement par `init`) active l'**autocomplétion, la validation et les infobulles dans VSCode** lorsque vous éditez la config.
 
