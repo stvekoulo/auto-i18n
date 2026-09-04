@@ -1,8 +1,13 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, readFile } from 'fs/promises';
-import { join } from 'path';
+import { mkdtemp, mkdir, rm, writeFile, readFile } from 'fs/promises';
+import { basename, join } from 'path';
 import { tmpdir } from 'os';
-import { readCatalog, backupFile, CatalogParseError } from '../../src/adapters/fs';
+import {
+  readCatalog,
+  backupFile,
+  collectSourceFiles,
+  CatalogParseError,
+} from '../../src/adapters/fs';
 
 const BOM = String.fromCharCode(0xfeff);
 
@@ -64,5 +69,19 @@ describe('adapters/fs — backupFile', () => {
     expect(second).not.toBe(first);
     expect(await readFile(first, 'utf-8')).toBe('v1');
     expect(await readFile(second, 'utf-8')).toBe('v2');
+  });
+});
+
+describe('adapters/fs — patterns ignore', () => {
+  it('traite `?` comme un caractère unique, pas comme un quantificateur', async () => {
+    const dir = await makeDir();
+    await mkdir(join(dir, 'app'), { recursive: true });
+    await writeFile(join(dir, 'app', 'a1.tsx'), 'export default 1;', 'utf-8');
+    await writeFile(join(dir, 'app', 'ab.tsx'), 'export default 1;', 'utf-8');
+    await writeFile(join(dir, 'app', 'a.tsx'), 'export default 1;', 'utf-8');
+
+    const files = await collectSourceFiles(dir, { ignorePatterns: ['app/a?.tsx'] });
+
+    expect(files.map(f => basename(f)).sort()).toEqual(['a.tsx']);
   });
 });

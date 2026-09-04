@@ -39,14 +39,18 @@ export async function runSyncCommand(
   const config = await loadConfig(projectRoot);
 
   loadEnv(projectRoot);
-  const apiKey = getApiKey(config.apiKeyEnv);
-  if (!apiKey) {
-    throw new Error(
-      `Clé API introuvable (${config.apiKeyEnv}). Ajoutez-la dans .env.local ou lancez "init".`,
-    );
-  }
 
-  const provider = createProvider(config.provider, apiKey);
+  // Fabrique plutôt que provider : un projet déjà entièrement traduit se
+  // synchronise sans clé API, ce qui débloque la CI et les contributeurs.
+  const provider = () => {
+    const apiKey = getApiKey(config.apiKeyEnv);
+    if (!apiKey) {
+      throw new Error(
+        `Clé API introuvable (${config.apiKeyEnv}). Ajoutez-la dans .env.local ou lancez "init".`,
+      );
+    }
+    return createProvider(config.provider, apiKey);
+  };
 
   const report = await runSync({
     projectRoot,
@@ -55,6 +59,7 @@ export async function runSyncCommand(
     targetLocales: config.targetLocales,
     messagesDir: config.messagesDir,
     ignore: config.ignore,
+    rootDirs: config.rootDirs,
   });
 
   renderSyncReport(projectRoot, report);

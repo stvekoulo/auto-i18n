@@ -76,6 +76,7 @@ export async function runInit(options: RunInitOptions): Promise<RunInitResult> {
     targetLocales,
     messagesDir: config.messagesDir,
     ignore: config.ignore,
+    rootDirs: config.rootDirs,
   });
   renderSyncReport(projectRoot, syncReport);
 

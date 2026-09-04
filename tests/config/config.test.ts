@@ -7,6 +7,8 @@ import {
   buildConfig,
   isValidConfig,
   ConfigNotFoundError,
+  ConfigInvalidError,
+  validateConfig,
   CONFIG_SCHEMA_PATH,
 } from '../../src/config';
 
@@ -90,5 +92,85 @@ describe('schema/auto-i18n.config.schema.json', () => {
     expect(schema.properties.sourceLocale).toBeDefined();
     expect(schema.properties.targetLocales).toBeDefined();
     expect(schema.additionalProperties).toBe(false);
+  });
+});
+
+describe('config — validation', () => {
+  it("rejette un code de langue qui n'en est pas un", () => {
+    expect(validateConfig({ sourceLocale: 'français', targetLocales: ['en'] })).toContain(
+      '"sourceLocale" doit être un code de langue, ex. "fr" ou "pt-BR".',
+    );
+  });
+
+  it('accepte les étiquettes BCP 47 étendues', () => {
+    expect(validateConfig({ sourceLocale: 'zh-Hans-CN', targetLocales: ['pt-BR'] })).toEqual([]);
+  });
+
+  it('refuse une langue à la fois source et cible', () => {
+    const problems = validateConfig({ sourceLocale: 'fr', targetLocales: ['fr', 'en'] });
+    expect(problems.join(' ')).toContain('à la fois la langue source et une langue cible');
+  });
+
+  it('refuse les doublons de langues cibles', () => {
+    const problems = validateConfig({ sourceLocale: 'fr', targetLocales: ['en', 'en'] });
+    expect(problems.join(' ')).toContain('doublons');
+  });
+
+  it('refuse un messagesDir qui sort du projet', () => {
+    // Les catalogues sont écrits sans autre contrôle en aval.
+    const problems = validateConfig({
+      sourceLocale: 'fr',
+      targetLocales: ['en'],
+      messagesDir: '../../etc',
+    });
+    expect(problems.join(' ')).toContain("rester à l'intérieur du projet");
+    expect(
+      validateConfig({ sourceLocale: 'fr', targetLocales: ['en'], messagesDir: '/tmp/x' }).join(
+        ' ',
+      ),
+    ).toContain("rester à l'intérieur du projet");
+  });
+
+  it('refuse un provider inconnu', () => {
+    const problems = validateConfig({
+      sourceLocale: 'fr',
+      targetLocales: ['en'],
+      provider: 'chatgpt',
+    });
+    expect(problems.join(' ')).toContain('"provider" doit valoir');
+  });
+
+  it("signale une faute de frappe au lieu de l'ignorer", () => {
+    const problems = validateConfig({
+      sourceLocale: 'fr',
+      targetLocales: ['en'],
+      messageDir: './messages',
+    });
+    expect(problems.join(' ')).toContain('champ inconnu "messageDir"');
+  });
+
+  it('rapporte tous les problèmes en une passe', () => {
+    const problems = validateConfig({ sourceLocale: 42, targetLocales: [], provider: 'x' });
+    expect(problems.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('loadConfig lève ConfigInvalidError en listant les problèmes', async () => {
+    const dir = await tmp();
+    await writeFile(
+      join(dir, 'auto-i18n.config.json'),
+      JSON.stringify({ sourceLocale: 'fr', targetLocales: ['fr'] }),
+      'utf-8',
+    );
+    await expect(loadConfig(dir)).rejects.toBeInstanceOf(ConfigInvalidError);
+  });
+
+  it('accepte rootDirs', async () => {
+    const dir = await tmp();
+    await writeFile(
+      join(dir, 'auto-i18n.config.json'),
+      JSON.stringify({ sourceLocale: 'fr', targetLocales: ['en'], rootDirs: ['modules'] }),
+      'utf-8',
+    );
+    expect((await loadConfig(dir)).rootDirs).toEqual(['modules']);
   });
 });

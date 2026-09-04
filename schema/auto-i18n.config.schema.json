@@ -14,7 +14,7 @@
     "sourceLocale": {
       "type": "string",
       "description": "Langue source du projet, en code ISO (ex: \"fr\", \"en\").",
-      "pattern": "^[a-z]{2}(-[a-zA-Z]{2,})?$",
+      "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$",
       "examples": ["fr", "en", "pt-BR"]
     },
     "targetLocales": {
@@ -24,7 +24,7 @@
       "uniqueItems": true,
       "items": {
         "type": "string",
-        "pattern": "^[a-z]{2}(-[a-zA-Z]{2,})?$"
+        "pattern": "^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$"
       },
       "examples": [["en", "es", "de"]]
     },
@@ -37,7 +37,8 @@
     "apiKeyEnv": {
       "type": "string",
       "description": "Nom de la variable d'environnement contenant la clé API (lue depuis .env.local).",
-      "default": "AUTO_I18N_DEEPL_KEY"
+      "default": "AUTO_I18N_DEEPL_KEY",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
     },
     "messagesDir": {
       "type": "string",
@@ -47,8 +48,20 @@
     "ignore": {
       "type": "array",
       "description": "Patterns glob exclus du scan (en plus des exclusions par défaut comme node_modules et .next).",
-      "items": { "type": "string" },
+      "items": {
+        "type": "string"
+      },
       "default": ["node_modules", ".next", "**/*.test.*", "**/*.spec.*"]
+    },
+    "rootDirs": {
+      "type": "array",
+      "description": "Dossiers de premier niveau à scanner. Absent = liste par défaut (app, src, pages, components, lib, hooks, utils, ui, features, shared). À renseigner si le code applicatif vit ailleurs.",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string"
+      },
+      "examples": [["app", "modules", "views"]]
     }
   }
 }

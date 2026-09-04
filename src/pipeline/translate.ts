@@ -22,8 +22,21 @@ import { mapWithConcurrency } from '../utils/concurrency.js';
  */
 const DEFAULT_LOCALE_CONCURRENCY = 4;
 
+/**
+ * Provider, ou fabrique de provider.
+ *
+ * La fabrique n'est appelée que si au moins une locale a des clés manquantes :
+ * un projet déjà entièrement traduit n'a alors besoin d'aucune clé API, ce qui
+ * permet à un contributeur sans secret de lancer `sync`.
+ */
+export type ProviderSource = TranslationProvider | (() => TranslationProvider);
+
+function resolveProvider(source: ProviderSource): TranslationProvider {
+  return typeof source === 'function' ? source() : source;
+}
+
 export interface TranslateCatalogsInput {
-  provider: TranslationProvider;
+  provider: ProviderSource;
   sourceLocale: string;
   sourceCatalog: Catalog;
   targetLocales: string[];
@@ -92,7 +105,10 @@ async function translateWithRetry(
 
 async function translateOneLocale(
   locale: string,
-  input: Required<Pick<TranslateCatalogsInput, 'provider' | 'sourceLocale' | 'sourceCatalog'>> & {
+  input: {
+    provider: TranslationProvider;
+    sourceLocale: string;
+    sourceCatalog: Catalog;
     existing: Catalog;
     maxRetries: number;
   },
@@ -169,9 +185,31 @@ export async function translateCatalogs(
     concurrency = DEFAULT_LOCALE_CONCURRENCY,
   } = input;
 
+  const pending = targetLocales.filter(
+    locale => missingKeys(sourceCatalog, existingTargets[locale] ?? {}).length > 0,
+  );
+
+  // Rien à traduire : on ne résout pas le provider, donc aucune clé API requise.
+  if (pending.length === 0) {
+    return {
+      byLocale: targetLocales.map(locale => ({
+        locale,
+        catalog: mergeTranslations(sourceCatalog, existingTargets[locale] ?? {}, {}),
+        translated: 0,
+        status: 'up_to_date' as const,
+      })),
+      totalTranslated: 0,
+      failed: [],
+    };
+  }
+
+  // Résolu une fois, en amont : une clé absente échoue proprement ici plutôt
+  // qu'en se répétant sur chaque locale.
+  const resolved = resolveProvider(provider);
+
   const byLocale = await mapWithConcurrency(targetLocales, concurrency, locale =>
     translateOneLocale(locale, {
-      provider,
+      provider: resolved,
       sourceLocale,
       sourceCatalog,
       existing: existingTargets[locale] ?? {},

@@ -52,10 +52,14 @@ export interface CollectOptions {
 
 function globToRegex(pattern: string): RegExp {
   const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    // `?` est échappé ici puis retraduit plus bas : sans cela il resterait le
+    // quantificateur « optionnel » de RegExp et `foo?.ts` ne dirait pas ce que
+    // l'auteur du pattern croit.
+    .replace(/[.+^${}()|[\]\\?]/g, '\\$&')
     .replace(/\*\*/g, '{{GLOBSTAR}}')
     .replace(/\*/g, '[^/]*')
-    .replace(/\{\{GLOBSTAR\}\}/g, '.*');
+    .replace(/\{\{GLOBSTAR\}\}/g, '.*')
+    .replace(/\\\?/g, '[^/]');
   return new RegExp(`^${escaped}$`);
 }
 

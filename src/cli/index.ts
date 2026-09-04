@@ -26,9 +26,20 @@ function readVersion(): string {
   }
 }
 
-function fail(err: unknown): never {
+/**
+ * Termine la commande sans couper la sortie.
+ *
+ * `process.exit` tue le processus avant que stdout ne soit vidé quand il est
+ * redirigé vers un tube : `check --json | jq` recevait un JSON tronqué.
+ * Positionner le code laisse Node sortir de lui-même, flux vidés.
+ */
+function finish(exitCode: number): void {
+  process.exitCode = exitCode;
+}
+
+function fail(err: unknown): void {
   logger.error(err instanceof Error ? err.message : String(err));
-  process.exit(1);
+  process.exitCode = 1;
 }
 
 const program = new Command();
@@ -75,7 +86,7 @@ program
 
         if (targetLocales.length === 0) {
           logger.error('Aucune langue cible valide');
-          process.exit(1);
+          return finish(1);
         }
 
         const provider = options.provider?.trim().toLowerCase() ?? (await askProvider());
@@ -93,7 +104,7 @@ program
 
         logger.blank();
         logger.success(`Terminé — ${sourceLocale} → ${targetLocales.join(', ')}`);
-        process.exit(exitCode);
+        finish(exitCode);
       } catch (err) {
         fail(err);
       }
@@ -116,7 +127,7 @@ program
         write: options.write,
         dryRun: options.dryRun,
       });
-      process.exit(exitCode);
+      finish(exitCode);
     } catch (err) {
       fail(err);
     }
@@ -129,10 +140,10 @@ program
   .action(async (options: { json?: boolean }) => {
     try {
       const { exitCode } = await runCheck({ projectRoot: process.cwd(), json: options.json });
-      process.exit(exitCode);
+      finish(exitCode);
     } catch (err) {
       fail(err);
     }
   });
 
-program.parseAsync();
+program.parseAsync().catch(fail);

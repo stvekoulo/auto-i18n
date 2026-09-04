@@ -28,6 +28,7 @@ export async function runCheck(options: RunCheckOptions): Promise<RunCheckResult
 
   const scan = await scanProject(projectRoot, {
     ignorePatterns: config.ignore,
+    rootDirs: config.rootDirs,
   });
 
   const messagesDir = resolve(projectRoot, config.messagesDir);

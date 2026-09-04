@@ -158,3 +158,40 @@ describe('pipeline/translate — parallélisme des locales', () => {
     expect(result.byLocale.map(r => r.locale)).toEqual(['en', 'es', 'de', 'it', 'pt']);
   });
 });
+
+describe('pipeline/translate — provider paresseux', () => {
+  it("n'instancie pas le provider quand tout est déjà traduit", async () => {
+    let created = 0;
+    const result = await translateCatalogs({
+      provider: () => {
+        created++;
+        throw new Error('clé API introuvable');
+      },
+      sourceLocale: 'fr',
+      sourceCatalog: { a: 'A' },
+      targetLocales: ['en', 'es'],
+      existingTargets: { en: { a: 'A-en' }, es: { a: 'A-es' } },
+    });
+
+    expect(created).toBe(0);
+    expect(result.byLocale.map(r => r.status)).toEqual(['up_to_date', 'up_to_date']);
+    expect(result.failed).toEqual([]);
+  });
+
+  it("remonte l'erreur de clé une seule fois s'il y a du travail", async () => {
+    let created = 0;
+    await expect(
+      translateCatalogs({
+        provider: () => {
+          created++;
+          throw new Error('clé API introuvable');
+        },
+        sourceLocale: 'fr',
+        sourceCatalog: { a: 'A' },
+        targetLocales: ['en', 'es', 'de'],
+        existingTargets: {},
+      }),
+    ).rejects.toThrow('clé API introuvable');
+    expect(created).toBe(1);
+  });
+});
