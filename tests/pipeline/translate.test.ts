@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { translateCatalogs } from '../../src/pipeline/translate';
+import { translateCatalogs, retryDelayMs } from '../../src/pipeline/translate';
 import {
   TranslationError,
   type TranslateParams,
@@ -104,5 +104,27 @@ describe('pipeline/translate — translateCatalogs', () => {
     expect(provider.calls).toBe(1);
     expect(result.byLocale[0].status).toBe('failed');
     expect(result.byLocale[0].error?.kind).toBe('auth');
+  });
+});
+
+describe('pipeline/translate — délai entre tentatives', () => {
+  it('respecte le Retry-After du provider', () => {
+    expect(retryDelayMs(1, 2000)).toBe(2000);
+  });
+
+  it('plafonne un Retry-After déraisonnable', () => {
+    expect(retryDelayMs(1, 10 * 60_000)).toBe(30_000);
+  });
+
+  it('croît exponentiellement et reste dans la fenêtre de jitter', () => {
+    // random() figé aux bornes : le délai doit rester dans [plafond/2, plafond].
+    expect(retryDelayMs(1, undefined, () => 0)).toBe(250);
+    expect(retryDelayMs(1, undefined, () => 1)).toBe(500);
+    expect(retryDelayMs(3, undefined, () => 0)).toBe(1000);
+    expect(retryDelayMs(3, undefined, () => 1)).toBe(2000);
+  });
+
+  it('plafonne la croissance exponentielle', () => {
+    expect(retryDelayMs(50, undefined, () => 1)).toBe(30_000);
   });
 });

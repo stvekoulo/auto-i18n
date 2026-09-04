@@ -2,10 +2,11 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { GoogleTranslateProvider } from '../../src/adapters/translation/google';
 import { TranslationError } from '../../src/adapters/translation/types';
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
+    headers: new Headers(headers),
     json: () => Promise.resolve(body),
   } as Response;
 }
@@ -37,7 +38,9 @@ describe('adapters/translation/google — GoogleTranslateProvider', () => {
 
     expect(out).toBe('Hello {name}');
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toContain('key=key');
+    // La clé voyage en en-tête : une query string finit dans les logs d'accès.
+    expect(url).not.toContain('key');
+    expect((init.headers as Record<string, string>)['x-goog-api-key']).toBe('key');
     const body = JSON.parse(init.body as string) as { q: string[]; target: string };
     expect(body.target).toBe('en');
     expect(body.q[0]).toContain('<span translate="no">{name}</span>');
@@ -75,6 +78,39 @@ describe('adapters/translation/google — GoogleTranslateProvider', () => {
     await expect(
       provider.translate(['x'], { sourceLocale: 'fr', targetLocale: 'en' }),
     ).rejects.toMatchObject({ kind, retryable });
+  });
+
+  it('reprend le délai demandé par Retry-After sur un 429', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse({ error: { code: 429 } }, 429, { 'retry-after': '2' })),
+    );
+
+    const provider = new GoogleTranslateProvider('key');
+    await expect(
+      provider.translate(['x'], { sourceLocale: 'fr', targetLocale: 'en' }),
+    ).rejects.toMatchObject({ kind: 'rate_limit', retryAfterMs: 2000 });
+  });
+
+  it("ne laisse jamais la clé API fuiter dans le message d'erreur", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ error: { code: 400, message: 'bad key sk-secret-42' } }, 400),
+        ),
+    );
+
+    const provider = new GoogleTranslateProvider('sk-secret-42');
+    await expect(
+      provider.translate(['x'], { sourceLocale: 'fr', targetLocale: 'en' }),
+    ).rejects.toThrow(/\*\*\*/);
+    await expect(
+      provider.translate(['x'], { sourceLocale: 'fr', targetLocale: 'en' }),
+    ).rejects.not.toThrow(/sk-secret-42/);
   });
 
   it('renvoie [] sans appeler fetch pour une liste vide', async () => {

@@ -4,7 +4,15 @@
  * Normalise les erreurs en {@link TranslationError}, comme le provider DeepL.
  */
 
-import { TranslationError, type TranslateParams, type TranslationProvider } from './types.js';
+import {
+  REQUEST_TIMEOUT_MS,
+  TranslationError,
+  parseRetryAfter,
+  redactSecret,
+  truncate,
+  type TranslateParams,
+  type TranslationProvider,
+} from './types.js';
 
 const GOOGLE_TRANSLATE_API = 'https://translation.googleapis.com/language/translate/v2';
 
@@ -71,14 +79,23 @@ export class GoogleTranslateProvider implements TranslationProvider {
 
     let response: Response;
     try {
-      response = await fetch(`${GOOGLE_TRANSLATE_API}?key=${encodeURIComponent(this.apiKey)}`, {
+      // Clé passée en en-tête, jamais en query string : une URL finit dans les
+      // journaux d'accès, l'historique du proxy et les traces d'erreur.
+      response = await fetch(GOOGLE_TRANSLATE_API, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': this.apiKey,
+        },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch (err) {
+      const timedOut = err instanceof Error && err.name === 'TimeoutError';
       throw new TranslationError(
-        `Erreur réseau : impossible de contacter Google Translate. (${String(err)})`,
+        timedOut
+          ? `Délai dépassé (${REQUEST_TIMEOUT_MS / 1000}s) en contactant Google Translate.`
+          : `Erreur réseau : impossible de contacter Google Translate. (${this.safe(String(err))})`,
         'network',
         true,
       );
@@ -86,14 +103,21 @@ export class GoogleTranslateProvider implements TranslationProvider {
 
     if (!response.ok) {
       const detail = (await response.json().catch(() => null)) as GoogleErrorResponse | null;
-      throw this.errorForStatus(response.status, detail?.error?.message ?? '');
+      throw this.errorForStatus(response, detail?.error?.message ?? '');
     }
 
     const data = (await response.json()) as GoogleTranslateResponse;
     return data.data.translations.map(t => restorePlaceholders(t.translatedText));
   }
 
-  private errorForStatus(status: number, detail: string): TranslationError {
+  /** Neutralise la clé API avant tout affichage. */
+  private safe(text: string): string {
+    return redactSecret(text, this.apiKey);
+  }
+
+  private errorForStatus(response: Response, rawDetail: string): TranslationError {
+    const status = response.status;
+    const detail = truncate(this.safe(rawDetail));
     switch (status) {
       case 400:
         return new TranslationError(
@@ -115,6 +139,7 @@ export class GoogleTranslateProvider implements TranslationProvider {
           'rate_limit',
           true,
           status,
+          parseRetryAfter(response.headers.get('retry-after')),
         );
       default:
         return new TranslationError(

@@ -37,8 +37,26 @@ export interface TranslateCatalogsResult {
   failed: string[];
 }
 
+const BASE_DELAY_MS = 500;
+const MAX_DELAY_MS = 30_000;
+
 function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Attente avant nouvelle tentative.
+ *
+ * Le délai indiqué par le provider (`Retry-After`) fait autorité. Sinon,
+ * croissance exponentielle avec jitter : un backoff fixe de quelques
+ * centaines de millisecondes épuise les tentatives avant qu'une fenêtre de
+ * rate-limit ne se rouvre, et sans aléa plusieurs locales relancées ensemble
+ * repartiraient en même temps.
+ */
+export function retryDelayMs(attempt: number, retryAfterMs?: number, random = Math.random): number {
+  if (retryAfterMs !== undefined) return Math.min(retryAfterMs, MAX_DELAY_MS);
+  const ceiling = Math.min(BASE_DELAY_MS * 2 ** (attempt - 1), MAX_DELAY_MS);
+  return ceiling / 2 + random() * (ceiling / 2);
 }
 
 async function translateWithRetry(
@@ -54,9 +72,9 @@ async function translateWithRetry(
       return await provider.translate(texts, { sourceLocale, targetLocale });
     } catch (error) {
       lastError = error;
-      const retryable = error instanceof TranslationError && error.retryable;
-      if (!retryable || attempt === maxRetries) throw error;
-      await delay(150 * attempt);
+      if (!(error instanceof TranslationError) || !error.retryable) throw error;
+      if (attempt === maxRetries) throw error;
+      await delay(retryDelayMs(attempt, error.retryAfterMs));
     }
   }
   throw lastError;

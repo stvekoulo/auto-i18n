@@ -3,7 +3,15 @@
  * par DeepL, puis les restaure. Normalise les erreurs en {@link TranslationError}.
  */
 
-import { TranslationError, type TranslateParams, type TranslationProvider } from './types.js';
+import {
+  REQUEST_TIMEOUT_MS,
+  TranslationError,
+  parseRetryAfter,
+  redactSecret,
+  truncate,
+  type TranslateParams,
+  type TranslationProvider,
+} from './types.js';
 
 const DEEPL_FREE_API = 'https://api-free.deepl.com/v2/translate';
 const DEEPL_PRO_API = 'https://api.deepl.com/v2/translate';
@@ -78,24 +86,35 @@ export class DeepLProvider implements TranslationProvider {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch (err) {
+      const timedOut = err instanceof Error && err.name === 'TimeoutError';
       throw new TranslationError(
-        `Erreur réseau : impossible de contacter DeepL. (${String(err)})`,
+        timedOut
+          ? `Délai dépassé (${REQUEST_TIMEOUT_MS / 1000}s) en contactant DeepL.`
+          : `Erreur réseau : impossible de contacter DeepL. (${this.safe(String(err))})`,
         'network',
         true,
       );
     }
 
     if (!response.ok) {
-      throw this.errorForStatus(response.status, await response.text().catch(() => ''));
+      throw this.errorForStatus(response, await response.text().catch(() => ''));
     }
 
     const data = (await response.json()) as DeepLResponse;
     return data.translations.map(t => restorePlaceholders(t.text));
   }
 
-  private errorForStatus(status: number, detail: string): TranslationError {
+  /** Neutralise la clé API avant tout affichage. */
+  private safe(text: string): string {
+    return redactSecret(text, this.apiKey);
+  }
+
+  private errorForStatus(response: Response, rawDetail: string): TranslationError {
+    const status = response.status;
+    const detail = truncate(this.safe(rawDetail));
     switch (status) {
       case 403:
         return new TranslationError(
@@ -117,6 +136,7 @@ export class DeepLProvider implements TranslationProvider {
           'rate_limit',
           true,
           status,
+          parseRetryAfter(response.headers.get('retry-after')),
         );
       case 400:
         return new TranslationError(
