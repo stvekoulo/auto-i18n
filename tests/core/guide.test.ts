@@ -91,7 +91,12 @@ describe('core/guide — buildGuide (markdown)', () => {
       targetLocales: [],
       date: 'x',
       strings: [
-        s({ value: 'Salut {name}', file: '/proj/c.tsx', kind: 'template', variables: ['name'] }),
+        s({
+          value: 'Salut {name}',
+          file: '/proj/c.tsx',
+          kind: 'template',
+          variables: [{ expression: 'name', name: 'name' }],
+        }),
       ],
       keyMap: new Map([['Salut {name}', 'salut_name']]),
       fileRuntimes: new Map(),
@@ -110,7 +115,7 @@ describe('core/guide — buildGuide (markdown)', () => {
           value: '{count} articles',
           file: '/proj/c.tsx',
           kind: 'template',
-          variables: ['count'],
+          variables: [{ expression: 'count', name: 'count' }],
           pluralHint: true,
         }),
       ],

@@ -38,6 +38,9 @@ export {
   type FileWriteOutcome,
 } from './pipeline/write.js';
 
+// Erreurs d'I/O remontées par les commandes
+export { CatalogParseError } from './adapters/fs/index.js';
+
 // Provider de traduction (pour brancher un provider custom)
 export {
   createProvider,

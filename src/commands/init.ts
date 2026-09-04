@@ -47,7 +47,7 @@ export async function runInit(options: RunInitOptions): Promise<RunInitResult> {
 
   const config = buildConfig(sourceLocale, targetLocales, options.providerName);
 
-  await ensureGitignore(projectRoot, ['.env.local', '*.backup']);
+  await ensureGitignore(projectRoot, ['.env.local', '*.backup*']);
   await saveApiKeyToEnv(projectRoot, config.apiKeyEnv, apiKey);
   await saveConfig(projectRoot, config);
 

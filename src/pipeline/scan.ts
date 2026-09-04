@@ -47,6 +47,9 @@ async function scanOneFile(file: string, blacklist?: string[]): Promise<FileScan
 
   try {
     const result = scanContent(content, file, { blacklist });
+    if (result.syntaxErrors.length > 0) {
+      return { file, strings: [], ignored: [], runtime: null, parseError: true };
+    }
     return {
       file,
       strings: result.strings,
@@ -103,7 +106,7 @@ export async function scanProject(
     }
     strings.push(...outcome.strings);
     ignored.push(...outcome.ignored);
-    fileRuntimes.set(outcome.file, outcome.runtime as Runtime);
+    if (outcome.runtime) fileRuntimes.set(outcome.file, outcome.runtime);
   }
 
   return { strings, ignored, parseErrors, filesScanned: files.length, fileRuntimes };

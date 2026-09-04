@@ -65,3 +65,14 @@ describe('core/catalog — mergeTranslations', () => {
     expect(Object.keys(merged)).toEqual(['a', 'b']);
   });
 });
+
+describe('core/catalog — déterminisme du tri', () => {
+  it('trie par point de code, pas par collation locale', () => {
+    // `localeCompare` place `_` avant les chiffres et dépend de l'ICU du build
+    // Node : le même catalogue s'ordonnerait autrement en CI.
+    const { catalog } = buildSourceCatalog(['ab', 'a1', 'a_b', 'a_1', 'a']);
+    const keys = Object.keys(catalog);
+    expect(keys).toEqual([...keys].sort());
+    expect(keys).not.toEqual([...keys].sort((x, y) => x.localeCompare(y)));
+  });
+});

@@ -3,7 +3,7 @@
  * et validation des placeholders. Pur, sans I/O.
  */
 
-import type { Catalog } from '../types.js';
+import { compareCodePoints, type Catalog } from '../types.js';
 import { KeyAllocator } from '../keys/index.js';
 
 export interface BuiltCatalog {
@@ -18,7 +18,7 @@ export interface BuiltCatalog {
 }
 
 function sortCatalog(catalog: Catalog): Catalog {
-  return Object.fromEntries(Object.entries(catalog).sort(([a], [b]) => a.localeCompare(b)));
+  return Object.fromEntries(Object.entries(catalog).sort(([a], [b]) => compareCodePoints(a, b)));
 }
 
 /**

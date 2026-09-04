@@ -7,9 +7,16 @@
  */
 
 import { type SourceFile, SyntaxKind, Node } from 'ts-morph';
-import type { ExtractedString, ReviewReason, Runtime, Scope, StringKind } from '../types.js';
+import type {
+  ExtractedString,
+  ReviewReason,
+  Runtime,
+  Scope,
+  StringKind,
+  TemplateVariable,
+} from '../types.js';
 
-export { parseSource } from './parse.js';
+export { parseSource, getSyntaxErrors } from './parse.js';
 
 /** Attributs JSX dont la valeur est du texte présenté à l'utilisateur. */
 // prettier-ignore
@@ -41,8 +48,47 @@ const T_CALLEES = /^t$|^translate$/;
 /** Variable interpolée qui ressemble à un compteur → forme plurielle probable. */
 const PLURAL_VAR_RE = /count|total|num|qty|quantity|amount|length/i;
 
-function isPluralCandidate(variables: string[]): boolean {
-  return variables.some(v => PLURAL_VAR_RE.test(v));
+function isPluralCandidate(variables: TemplateVariable[]): boolean {
+  return variables.some(v => PLURAL_VAR_RE.test(v.expression));
+}
+
+const IDENTIFIER_TOKEN_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
+
+/**
+ * Dérive un nom d'argument ICU valide depuis une expression JS quelconque.
+ * `user.name` → `userName`, `items[0].label` → `itemsLabel`, `count` → `count`.
+ *
+ * ICU MessageFormat ne tolère pas les points ni les appels dans un nom
+ * d'argument : sans cette normalisation, le catalogue produit un message que
+ * `next-intl` refuse au runtime.
+ */
+export function toIcuName(expression: string): string {
+  const tokens = expression.match(IDENTIFIER_TOKEN_RE) ?? [];
+  if (tokens.length === 0) return 'value';
+  const [first, ...rest] = tokens;
+  return first + rest.map(t => t[0].toUpperCase() + t.slice(1)).join('');
+}
+
+/** Nomme les variables d'une template literal, sans collision ni doublon. */
+class TemplateVariables {
+  private readonly byExpression = new Map<string, string>();
+  private readonly used = new Set<string>();
+  readonly list: TemplateVariable[] = [];
+
+  /** Renvoie le nom ICU de `expression` (stable pour une même expression). */
+  nameFor(expression: string): string {
+    const known = this.byExpression.get(expression);
+    if (known) return known;
+
+    const base = toIcuName(expression);
+    let name = base;
+    for (let suffix = 2; this.used.has(name); suffix++) name = `${base}${suffix}`;
+
+    this.used.add(name);
+    this.byExpression.set(expression, name);
+    this.list.push({ expression, name });
+    return name;
+  }
 }
 
 function getTemplateText(node: Node): string {
@@ -162,7 +208,7 @@ function isUnsafeJsxText(node: Node, leading: string, trailing: string): boolean
 function makeString(
   base: { value: string; kind: StringKind; file: string },
   node: Node,
-  opts: { review?: ReviewReason; variables?: string[]; pluralHint?: boolean } = {},
+  opts: { review?: ReviewReason; variables?: TemplateVariable[]; pluralHint?: boolean } = {},
 ): ExtractedString {
   const scope: Scope =
     base.kind === 'jsx-text' || base.kind === 'jsx-attribute' ? 'component' : scopeOf(node);
@@ -265,20 +311,19 @@ export function extractStringNodes(sourceFile: SourceFile, file: string): Extrac
   for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.TemplateExpression)) {
     if (isFirstArgOfTCall(node) || isInsideNonTranslatableAttribute(node)) continue;
 
-    const variables: string[] = [];
+    const variables = new TemplateVariables();
     let reconstructed = getTemplateText(node.getHead());
     for (const span of node.getTemplateSpans()) {
-      const varExpr = span.getExpression().getText();
-      variables.push(varExpr);
-      reconstructed += `{${varExpr}}${getTemplateText(span.getLiteral())}`;
+      const name = variables.nameFor(span.getExpression().getText());
+      reconstructed += `{${name}}${getTemplateText(span.getLiteral())}`;
     }
 
     const trimmed = reconstructed.trim();
     if (!trimmed) continue;
     results.push({
       info: makeString({ value: trimmed, kind: 'template', file }, node, {
-        variables,
-        pluralHint: isPluralCandidate(variables),
+        variables: variables.list,
+        pluralHint: isPluralCandidate(variables.list),
       }),
       node,
     });

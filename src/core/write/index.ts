@@ -22,7 +22,7 @@ import {
   type FunctionExpression,
   type SourceFile,
 } from 'ts-morph';
-import type { ExtractedString, Runtime } from '../types.js';
+import { formatTranslationArgs, type ExtractedString, type Runtime } from '../types.js';
 import { extractStringNodes } from '../extraction/index.js';
 
 export interface WriteEdit {
@@ -148,7 +148,7 @@ function evaluateHost(fn: HostFn | null, runtime: Runtime): HostEligibility {
 
 function buildReplacement(info: ExtractedString, key: string, node: Node): string {
   if (info.kind === 'template' && info.variables && info.variables.length > 0) {
-    return `t("${key}", { ${info.variables.join(', ')} })`;
+    return `t("${key}", { ${formatTranslationArgs(info.variables)} })`;
   }
   if (info.kind === 'jsx-attribute') {
     const call = `t("${key}")`;
@@ -244,6 +244,7 @@ export function computeWriteEdits(
   const skipped: WriteSkip[] = [];
   const injectedHosts = new Set<HostFn>();
   let importKind: 'client' | 'server_async' | null = null;
+  let written = 0;
 
   for (const { info, node } of safeNodes) {
     const key = keyMap.get(info.value);
@@ -257,6 +258,7 @@ export function computeWriteEdits(
     }
 
     edits.push(buildStringEdit(info, node, key));
+    written++;
 
     if (eligibility.inject && !injectedHosts.has(host)) {
       injectedHosts.add(host);
@@ -270,7 +272,7 @@ export function computeWriteEdits(
     if (importEdit) edits.push(importEdit);
   }
 
-  return { edits, written: safeNodes.length - skipped.length, skipped };
+  return { edits, written, skipped };
 }
 
 /** Applique des édits `[start, end)` (non chevauchants) à un texte source. */
