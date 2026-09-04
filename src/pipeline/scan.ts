@@ -11,6 +11,7 @@ import { collectSourceFiles, readText, type CollectOptions } from '../adapters/f
 import { scanContent, type IgnoredString } from '../core/scan/index.js';
 import type { ExtractedString, Runtime } from '../core/types.js';
 import type { FilterOptions } from '../core/filters/index.js';
+import { mapWithConcurrency } from '../utils/concurrency.js';
 
 export interface ScanProjectOptions extends CollectOptions, FilterOptions {
   /** Nombre de fichiers traités en parallèle (défaut 16). */
@@ -60,26 +61,6 @@ async function scanOneFile(file: string, blacklist?: string[]): Promise<FileScan
   } catch {
     return { file, strings: [], ignored: [], runtime: null, parseError: true };
   }
-}
-
-/** Applique `worker` sur `items` avec au plus `concurrency` exécutions simultanées. */
-async function mapWithConcurrency<T, R>(
-  items: T[],
-  concurrency: number,
-  worker: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-
-  async function runNext(): Promise<void> {
-    const index = next++;
-    if (index >= items.length) return;
-    results[index] = await worker(items[index]);
-    await runNext();
-  }
-
-  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, runNext));
-  return results;
 }
 
 /** Scanne tout le projet et agrège les strings détectées. */

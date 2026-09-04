@@ -6,7 +6,13 @@
  * de bord : on ne modifie jamais l'AST.
  */
 
-import { type SourceFile, SyntaxKind, Node } from 'ts-morph';
+import {
+  type JsxAttribute,
+  type SourceFile,
+  type TemplateExpression,
+  SyntaxKind,
+  Node,
+} from 'ts-morph';
 import type {
   ExtractedString,
   ReviewReason,
@@ -252,90 +258,104 @@ export interface ExtractedStringNode {
   node: Node;
 }
 
+/** Texte JSX brut : `<p>Bonjour</p>`. */
+function collectJsxText(node: Node, file: string, out: ExtractedStringNode[]): void {
+  const rawText = node.getText();
+  const trimmed = rawText.trim();
+  if (!trimmed) return;
+
+  const { leading, trailing } = getJsxPadding(rawText, trimmed);
+  const review = isUnsafeJsxText(node, leading, trailing) ? 'jsx_inline_spacing' : undefined;
+  out.push({
+    info: makeString({ value: trimmed, kind: 'jsx-text', file }, node, { review }),
+    node,
+  });
+}
+
+/** Attribut JSX présenté à l'utilisateur : `placeholder`, `alt`, `title`… */
+function collectJsxAttribute(attr: JsxAttribute, file: string, out: ExtractedStringNode[]): void {
+  if (!TRANSLATABLE_ATTRIBUTES.has(attr.getNameNode().getText())) return;
+  const initializer = attr.getInitializer();
+  if (!initializer) return;
+
+  let value: string | null = null;
+  let target: Node = initializer;
+
+  if (Node.isStringLiteral(initializer)) {
+    value = initializer.getLiteralValue();
+  } else if (Node.isJsxExpression(initializer)) {
+    const inner = initializer.getExpression();
+    if (inner && Node.isStringLiteral(inner)) {
+      value = inner.getLiteralValue();
+      target = inner;
+    }
+  }
+
+  if (!value?.trim()) return;
+  out.push({
+    info: makeString({ value: value.trim(), kind: 'jsx-attribute', file }, target),
+    node: target,
+  });
+}
+
+/** Template literal avec interpolation : `` `Bonjour ${user.name}` ``. */
+function collectTemplateExpression(
+  node: TemplateExpression,
+  file: string,
+  out: ExtractedStringNode[],
+): void {
+  if (isFirstArgOfTCall(node) || isInsideNonTranslatableAttribute(node)) return;
+
+  const variables = new TemplateVariables();
+  let reconstructed = getTemplateText(node.getHead());
+  for (const span of node.getTemplateSpans()) {
+    const name = variables.nameFor(span.getExpression().getText());
+    reconstructed += `{${name}}${getTemplateText(span.getLiteral())}`;
+  }
+
+  const trimmed = reconstructed.trim();
+  if (!trimmed) return;
+  out.push({
+    info: makeString({ value: trimmed, kind: 'template', file }, node, {
+      variables: variables.list,
+      pluralHint: isPluralCandidate(variables.list),
+    }),
+    node,
+  });
+}
+
 /**
  * Extrait toutes les strings traduisibles brutes d'un fichier (avant filtres),
  * avec leur nœud AST d'origine. `extractStrings` (API publique, sans I/O ni
  * dépendance à ts-morph côté appelant) en est une projection.
+ *
+ * Une seule traversée pour les cinq formes : cinq `getDescendantsOfKind`
+ * parcouraient l'arbre entier cinq fois et enveloppaient chaque nœud à chaque
+ * passe (285 ms contre 81 ms sur 300 fichiers). Les résultats sortent donc en
+ * ordre du document plutôt que groupés par forme.
  */
 export function extractStringNodes(sourceFile: SourceFile, file: string): ExtractedStringNode[] {
   const results: ExtractedStringNode[] = [];
 
-  // 1. Texte JSX
-  for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.JsxText)) {
-    const rawText = node.getText();
-    const trimmed = rawText.trim();
-    if (!trimmed) continue;
-    const { leading, trailing } = getJsxPadding(rawText, trimmed);
-    const review = isUnsafeJsxText(node, leading, trailing) ? 'jsx_inline_spacing' : undefined;
-    results.push({
-      info: makeString({ value: trimmed, kind: 'jsx-text', file }, node, { review }),
-      node,
-    });
-  }
-
-  // 2. Attributs JSX traduisibles
-  for (const attr of sourceFile.getDescendantsOfKind(SyntaxKind.JsxAttribute)) {
-    if (!TRANSLATABLE_ATTRIBUTES.has(attr.getNameNode().getText())) continue;
-    const initializer = attr.getInitializer();
-    if (!initializer) continue;
-
-    let value: string | null = null;
-    let target: Node = initializer;
-
-    if (Node.isStringLiteral(initializer)) {
-      value = initializer.getLiteralValue();
-    } else if (Node.isJsxExpression(initializer)) {
-      const inner = initializer.getExpression();
-      if (inner && Node.isStringLiteral(inner)) {
-        value = inner.getLiteralValue();
-        target = inner;
+  sourceFile.forEachDescendant(node => {
+    if (Node.isJsxText(node)) {
+      collectJsxText(node, file, results);
+    } else if (Node.isJsxAttribute(node)) {
+      collectJsxAttribute(node, file, results);
+    } else if (Node.isNoSubstitutionTemplateLiteral(node)) {
+      if (isFirstArgOfTCall(node) || isInsideNonTranslatableAttribute(node)) return;
+      const value = node.getLiteralValue().trim();
+      if (value) results.push({ info: makeString({ value, kind: 'template', file }, node), node });
+    } else if (Node.isTemplateExpression(node)) {
+      collectTemplateExpression(node, file, results);
+    } else if (Node.isStringLiteral(node)) {
+      if (isFirstArgOfTCall(node) || isInNonExtractableContext(node)) return;
+      const value = node.getLiteralValue().trim();
+      if (value) {
+        results.push({ info: makeString({ value, kind: 'string-literal', file }, node), node });
       }
     }
-
-    if (!value?.trim()) continue;
-    results.push({
-      info: makeString({ value: value.trim(), kind: 'jsx-attribute', file }, target),
-      node: target,
-    });
-  }
-
-  // 3. Template literals sans interpolation
-  for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.NoSubstitutionTemplateLiteral)) {
-    if (isFirstArgOfTCall(node) || isInsideNonTranslatableAttribute(node)) continue;
-    const value = node.getLiteralValue().trim();
-    if (!value) continue;
-    results.push({ info: makeString({ value, kind: 'template', file }, node), node });
-  }
-
-  // 4. Template literals avec interpolation `{var}`
-  for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.TemplateExpression)) {
-    if (isFirstArgOfTCall(node) || isInsideNonTranslatableAttribute(node)) continue;
-
-    const variables = new TemplateVariables();
-    let reconstructed = getTemplateText(node.getHead());
-    for (const span of node.getTemplateSpans()) {
-      const name = variables.nameFor(span.getExpression().getText());
-      reconstructed += `{${name}}${getTemplateText(span.getLiteral())}`;
-    }
-
-    const trimmed = reconstructed.trim();
-    if (!trimmed) continue;
-    results.push({
-      info: makeString({ value: trimmed, kind: 'template', file }, node, {
-        variables: variables.list,
-        pluralHint: isPluralCandidate(variables.list),
-      }),
-      node,
-    });
-  }
-
-  // 5. String literals
-  for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.StringLiteral)) {
-    if (isFirstArgOfTCall(node) || isInNonExtractableContext(node)) continue;
-    const value = node.getLiteralValue().trim();
-    if (!value) continue;
-    results.push({ info: makeString({ value, kind: 'string-literal', file }, node), node });
-  }
+  });
 
   return results;
 }

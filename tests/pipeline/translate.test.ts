@@ -128,3 +128,33 @@ describe('pipeline/translate — délai entre tentatives', () => {
     expect(retryDelayMs(50, undefined, () => 1)).toBe(30_000);
   });
 });
+
+describe('pipeline/translate — parallélisme des locales', () => {
+  it('traduit plusieurs locales en même temps sans dépasser la limite', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const provider: TranslationProvider = {
+      name: 'fake',
+      async translate(texts) {
+        peak = Math.max(peak, ++inFlight);
+        await new Promise(r => setTimeout(r, 5));
+        inFlight--;
+        return texts.map(t => `x:${t}`);
+      },
+    };
+
+    const result = await translateCatalogs({
+      provider,
+      sourceLocale: 'fr',
+      sourceCatalog: { a: 'A' },
+      targetLocales: ['en', 'es', 'de', 'it', 'pt'],
+      existingTargets: {},
+      concurrency: 2,
+    });
+
+    expect(peak).toBe(2);
+    expect(result.totalTranslated).toBe(5);
+    // L'ordre de sortie suit l'ordre demandé, pas l'ordre d'achèvement.
+    expect(result.byLocale.map(r => r.locale)).toEqual(['en', 'es', 'de', 'it', 'pt']);
+  });
+});

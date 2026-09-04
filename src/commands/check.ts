@@ -33,10 +33,13 @@ export async function runCheck(options: RunCheckOptions): Promise<RunCheckResult
   const messagesDir = resolve(projectRoot, config.messagesDir);
   const sourceCatalog = await readCatalog(join(messagesDir, `${config.sourceLocale}.json`));
 
-  const targetCatalogs: Record<string, Awaited<ReturnType<typeof readCatalog>>> = {};
-  for (const locale of config.targetLocales) {
-    targetCatalogs[locale] = await readCatalog(join(messagesDir, `${locale}.json`));
-  }
+  const targetCatalogs = Object.fromEntries(
+    await Promise.all(
+      config.targetLocales.map(
+        async locale => [locale, await readCatalog(join(messagesDir, `${locale}.json`))] as const,
+      ),
+    ),
+  );
 
   const report = buildCheckReport({
     strings: scan.strings,

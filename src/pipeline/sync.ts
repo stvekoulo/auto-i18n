@@ -56,10 +56,14 @@ export async function runSync(input: RunSyncInput): Promise<SyncReport> {
   } = buildSourceCatalog(values, existingSource);
   await writeCatalog(sourcePath, sourceCatalog);
 
-  const existingTargets: Record<string, Catalog> = {};
-  for (const locale of targetLocales) {
-    existingTargets[locale] = await readCatalog(join(absMessagesDir, `${locale}.json`));
-  }
+  const existingTargets = Object.fromEntries(
+    await Promise.all(
+      targetLocales.map(
+        async locale =>
+          [locale, await readCatalog(join(absMessagesDir, `${locale}.json`))] as const,
+      ),
+    ),
+  ) as Record<string, Catalog>;
 
   const translation = await translateCatalogs({
     provider,
@@ -69,10 +73,12 @@ export async function runSync(input: RunSyncInput): Promise<SyncReport> {
     existingTargets,
   });
 
-  for (const result of translation.byLocale) {
-    if (result.status === 'failed') continue; // on préserve le fichier existant
-    await writeCatalog(join(absMessagesDir, `${result.locale}.json`), result.catalog);
-  }
+  await Promise.all(
+    translation.byLocale
+      // Une locale en échec garde son fichier existant intact.
+      .filter(result => result.status !== 'failed')
+      .map(result => writeCatalog(join(absMessagesDir, `${result.locale}.json`), result.catalog)),
+  );
 
   let safe = 0;
   let review = 0;

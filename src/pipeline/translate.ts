@@ -13,6 +13,14 @@ import {
   type TranslationProvider,
   type TranslationErrorKind,
 } from '../adapters/translation/index.js';
+import { mapWithConcurrency } from '../utils/concurrency.js';
+
+/**
+ * Locales traduites simultanément. Chaque locale est un aller-retour réseau
+ * indépendant : les enchaîner multipliait le temps d'attente par leur nombre.
+ * Volontairement bas — le provider impose ses propres quotas.
+ */
+const DEFAULT_LOCALE_CONCURRENCY = 4;
 
 export interface TranslateCatalogsInput {
   provider: TranslationProvider;
@@ -21,6 +29,8 @@ export interface TranslateCatalogsInput {
   targetLocales: string[];
   existingTargets: Record<string, Catalog>;
   maxRetries?: number;
+  /** Locales traduites en parallèle (défaut 4). */
+  concurrency?: number;
 }
 
 export interface LocaleTranslation {
@@ -80,6 +90,72 @@ async function translateWithRetry(
   throw lastError;
 }
 
+async function translateOneLocale(
+  locale: string,
+  input: Required<Pick<TranslateCatalogsInput, 'provider' | 'sourceLocale' | 'sourceCatalog'>> & {
+    existing: Catalog;
+    maxRetries: number;
+  },
+): Promise<LocaleTranslation> {
+  const { provider, sourceLocale, sourceCatalog, existing, maxRetries } = input;
+  const keys = missingKeys(sourceCatalog, existing);
+
+  if (keys.length === 0) {
+    return {
+      locale,
+      catalog: mergeTranslations(sourceCatalog, existing, {}),
+      translated: 0,
+      status: 'up_to_date',
+    };
+  }
+
+  try {
+    const texts = keys.map(k => sourceCatalog[k]);
+    const translations = await translateWithRetry(
+      provider,
+      texts,
+      sourceLocale,
+      locale,
+      maxRetries,
+    );
+
+    const fresh: Catalog = {};
+    for (let i = 0; i < keys.length; i++) {
+      const src = sourceCatalog[keys[i]];
+      const out = translations[i];
+      if (!placeholdersMatch(src, out)) {
+        throw new TranslationError(
+          `Placeholders incohérents pour "${keys[i]}" (${locale}).`,
+          'provider',
+          false,
+        );
+      }
+      fresh[keys[i]] = out;
+    }
+
+    return {
+      locale,
+      catalog: mergeTranslations(sourceCatalog, existing, fresh),
+      translated: keys.length,
+      status: 'updated',
+    };
+  } catch (error) {
+    const kind =
+      error instanceof TranslationError
+        ? /[Pp]laceholder/.test(error.message)
+          ? 'placeholder'
+          : error.kind
+        : 'provider';
+    return {
+      locale,
+      catalog: mergeTranslations(sourceCatalog, existing, {}),
+      translated: 0,
+      status: 'failed',
+      error: { message: error instanceof Error ? error.message : String(error), kind },
+    };
+  }
+}
+
 export async function translateCatalogs(
   input: TranslateCatalogsInput,
 ): Promise<TranslateCatalogsResult> {
@@ -90,74 +166,22 @@ export async function translateCatalogs(
     targetLocales,
     existingTargets,
     maxRetries = 3,
+    concurrency = DEFAULT_LOCALE_CONCURRENCY,
   } = input;
 
-  const byLocale: LocaleTranslation[] = [];
-  const failed: string[] = [];
-  let totalTranslated = 0;
+  const byLocale = await mapWithConcurrency(targetLocales, concurrency, locale =>
+    translateOneLocale(locale, {
+      provider,
+      sourceLocale,
+      sourceCatalog,
+      existing: existingTargets[locale] ?? {},
+      maxRetries,
+    }),
+  );
 
-  for (const locale of targetLocales) {
-    const existing = existingTargets[locale] ?? {};
-    const keys = missingKeys(sourceCatalog, existing);
-
-    if (keys.length === 0) {
-      byLocale.push({
-        locale,
-        catalog: mergeTranslations(sourceCatalog, existing, {}),
-        translated: 0,
-        status: 'up_to_date',
-      });
-      continue;
-    }
-
-    try {
-      const texts = keys.map(k => sourceCatalog[k]);
-      const translations = await translateWithRetry(
-        provider,
-        texts,
-        sourceLocale,
-        locale,
-        maxRetries,
-      );
-
-      const fresh: Catalog = {};
-      for (let i = 0; i < keys.length; i++) {
-        const src = sourceCatalog[keys[i]];
-        const out = translations[i];
-        if (!placeholdersMatch(src, out)) {
-          throw new TranslationError(
-            `Placeholders incohérents pour "${keys[i]}" (${locale}).`,
-            'provider',
-            false,
-          );
-        }
-        fresh[keys[i]] = out;
-      }
-
-      byLocale.push({
-        locale,
-        catalog: mergeTranslations(sourceCatalog, existing, fresh),
-        translated: keys.length,
-        status: 'updated',
-      });
-      totalTranslated += keys.length;
-    } catch (error) {
-      const kind =
-        error instanceof TranslationError
-          ? /[Pp]laceholder/.test(error.message)
-            ? 'placeholder'
-            : error.kind
-          : 'provider';
-      byLocale.push({
-        locale,
-        catalog: mergeTranslations(sourceCatalog, existing, {}),
-        translated: 0,
-        status: 'failed',
-        error: { message: error instanceof Error ? error.message : String(error), kind },
-      });
-      failed.push(locale);
-    }
-  }
-
-  return { byLocale, totalTranslated, failed };
+  return {
+    byLocale,
+    totalTranslated: byLocale.reduce((sum, r) => sum + r.translated, 0),
+    failed: byLocale.filter(r => r.status === 'failed').map(r => r.locale),
+  };
 }
