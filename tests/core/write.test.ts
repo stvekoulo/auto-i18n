@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSource } from '../../src/core/extraction';
+import { parseSource, getSyntaxErrors } from '../../src/core/extraction';
 import { computeWriteEdits, applyEdits } from '../../src/core/write';
 import type { Runtime } from '../../src/core/types';
 
@@ -156,9 +156,7 @@ describe('core/write — arguments de template', () => {
     expect(result.written).toBe(1);
     expect(output).toContain('t("salut", { userName: user.name, count })');
     // Le code produit doit être re-parsable : `{ user.name }` serait une SyntaxError.
-    expect(
-      parseSource(output, 'W.tsx').getProject().getProgram().getSyntacticDiagnostics(),
-    ).toHaveLength(0);
+    expect(getSyntaxErrors(parseSource(output, 'W.tsx'))).toEqual([]);
   });
 
   it('ne compte pas comme câblée une string absente du keyMap', () => {
