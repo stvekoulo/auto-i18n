@@ -3,8 +3,11 @@ import { join } from 'path';
 import { config as dotenvConfig } from 'dotenv';
 
 export function loadEnv(projectRoot: string): void {
-  dotenvConfig({ path: join(projectRoot, '.env.local') });
-  dotenvConfig({ path: join(projectRoot, '.env') });
+  // `quiet` : depuis dotenv 17, le chargement annonce chaque fichier lu et
+  // affiche des conseils publicitaires. Ce bruit n'a rien à faire dans la
+  // sortie d'un CLI dont on lit les rapports.
+  dotenvConfig({ path: join(projectRoot, '.env.local'), quiet: true });
+  dotenvConfig({ path: join(projectRoot, '.env'), quiet: true });
 }
 
 export function getApiKey(envVar: string): string | undefined {
