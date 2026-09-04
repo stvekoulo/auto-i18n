@@ -1,5 +1,6 @@
 node_modules/
 dist/
+coverage/
 
 # Variables d'environnement — ne jamais commiter
 .env
@@ -7,7 +8,10 @@ dist/
 .env.*.local
 
 # Backups générés par auto-i18n avant réécriture AST
-*.backup
+*.backup*
+
+# Tarballs npm
+*.tgz
 
 # Logs
 *.log

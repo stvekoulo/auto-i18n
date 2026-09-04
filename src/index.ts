@@ -24,7 +24,7 @@ export {
 } from './config/index.js';
 
 // Pipelines (orchestration)
-export { scanProject, type ProjectScanResult } from './pipeline/scan.js';
+export { scanProject, type ProjectScanResult, type ScanProjectOptions } from './pipeline/scan.js';
 export { runSync, type SyncReport } from './pipeline/sync.js';
 export {
   translateCatalogs,
@@ -37,6 +37,9 @@ export {
   type WriteReport,
   type FileWriteOutcome,
 } from './pipeline/write.js';
+
+// Erreurs d'I/O remontées par les commandes
+export { CatalogParseError } from './adapters/fs/index.js';
 
 // Provider de traduction (pour brancher un provider custom)
 export {

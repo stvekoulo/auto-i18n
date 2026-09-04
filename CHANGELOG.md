@@ -1,6 +1,58 @@
 # Changelog
 
-## [Unreleased]
+## [2.0.0] - 2026-09-04
+
+Passe de durcissement : correction de défauts qui cassaient ou corrompaient les projets utilisateurs, fermeture des fuites de clé API, et remise à niveau des dépendances.
+
+**Breaking changes**
+
+- **Node.js `>= 22.12`** requis (18 et 20 sont en fin de vie).
+- **Les variables d'interpolation sont renommées en identifiants ICU.** Un texte `` `Bonjour ${user.name}` `` produisait la clé `"Bonjour {user.name}"` — un message qu'ICU MessageFormat refuse au runtime. Il produit désormais `"Bonjour {userName}"`. Les catalogues existants contenant des placeholders à points doivent être corrigés à la main (voir `MIGRATION.md`).
+- **Une configuration invalide arrête la commande** au lieu d'être ignorée en silence.
+- **Un catalogue `messages/*.json` illisible arrête la commande** au lieu d'être traité comme vide puis écrasé.
+- `ExtractedString.variables` passe de `string[]` à `TemplateVariable[]` (`{ expression, name }`) — concerne l'usage programmatique.
+- `isValidConfig` est désormais stricte ; `validateConfig` renvoie la liste des problèmes.
+
+### Fixed
+
+- **`sync --write` générait du JavaScript invalide.** Une template literal avec une expression composée produisait `t("clé", { user.name })`, une `SyntaxError` dans le build de l'utilisateur.
+- **Ordre des clés non déterministe.** Le tri passait par `localeCompare`, dont le résultat dépend des données ICU du build Node et de la locale de l'hôte : le même catalogue s'ordonnait différemment en local et en CI, avec un diff fantôme à chaque exécution. Tri par point de code.
+- **Fichiers cassés comptés comme vides.** Le parser TypeScript est tolérant : un fichier invalide ressortait « scanné, 0 string » et `parseErrors` n'était jamais renseigné.
+- **Sauvegardes écrasées.** Un second `sync --write` détruisait le `.backup` d'origine. Le nom est maintenant choisi de façon atomique (`.backup`, `.backup.2`, …) et `.gitignore` couvre `*.backup*`.
+- **Décompte des strings câblées** faussé par les valeurs absentes du catalogue.
+- `?` dans un pattern `ignore` agissait comme quantificateur d'expression régulière au lieu de correspondre à un caractère.
+- La sortie du CLI n'est plus tronquée sur un tube : `check --json | jq` recevait du JSON coupé.
+
+### Security
+
+- **Clé Google Translate déplacée de l'URL vers l'en-tête `x-goog-api-key`** — une URL est enregistrée par les journaux d'accès, les proxys et les traces d'erreur.
+- **Corps d'erreur provider masqués et tronqués** avant affichage : une réponse renvoyant la requête en écho publiait la clé dans les journaux de CI.
+- **`apiKeyEnv` échappé** avant compilation en expression régulière, et valeur insérée littéralement (un `$&` dans la clé ne peut plus altérer `.env.local`).
+- **`.env.local` créé en mode `0600`.**
+- **`messagesDir` ne peut plus sortir de la racine du projet** — les catalogues y étaient écrits sans autre contrôle.
+- **Délai maximal de 30 s par requête provider.** Sans signal d'abandon, un service qui ne répond pas figeait le CLI indéfiniment.
+
+### Changed
+
+- **Réessais** en backoff exponentiel avec jitter, respectant `Retry-After`. Le délai linéaire de 150 ms épuisait les tentatives bien avant la réouverture d'une fenêtre de rate-limit.
+- **Locales traduites en parallèle** (4 à la fois) au lieu d'une par une.
+- **Une seule traversée d'AST** par fichier au lieu de cinq (285 ms → 81 ms sur 300 fichiers).
+- **`sync` n'exige une clé API que s'il y a du texte à traduire** : un projet déjà complet se synchronise sans secret.
+- Catalogues cibles lus et écrits en parallèle.
+- Dépendances : `ora` supprimée (déclarée, jamais importée), `inquirer` remplacée par `@inquirer/prompts` (typée nativement — le shim `src/types/inquirer.d.ts` disparaît), `ts-morph` 22 → 28 (TypeScript embarqué 5.4 → 6.0), `chalk` / `commander` / `dotenv` / `diff` aux majeures courantes. **Arbre de production : 95 → 40 paquets** (installation propre des seules dépendances publiées, peers optionnels exclus des deux côtés).
+- Le champ `$schema` des configs générées pointe vers l'URL publiée, le chemin `node_modules` ne résolvant ni sous Yarn PnP ni depuis un paquet hissé en monorepo.
+- Outillage de développement : ESLint 9 → 10, `typescript-eslint` 8.69, `eslint-config-prettier` 9 → 10, Vitest 4 → 5, TypeScript 5.9 → 6.0.3 — la même version que celle embarquée par ts-morph 28, donc le compilateur qui construit le paquet et le parseur qui lit votre code s'accordent. TypeScript 7 a été essayé puis écarté : `typescript-eslint` refuse toute majeure ≥ 7 (typescript-eslint#10940).
+- **Couverture de tests mesurée** (`npm run test:coverage`) avec des seuils vérifiés en CI. 105 → 186 tests : provider DeepL (le mapping d'erreurs, `Retry-After` et le masquage de la clé n'avaient aucun test là où Google en avait), rendu terminal, et le pool de workers.
+
+### Added
+
+- **Pool de workers pour le scan** (`node:worker_threads`), activé au-delà de 3 500 fichiers. Le parsing est le seul travail vraiment gourmand en CPU du package, et une concurrence `async` ne le répartit sur aucun cœur supplémentaire. Le seuil et le nombre de workers viennent du banc d'essai, pas de l'intuition : démarrer un worker y recharge ts-morph (~400 ms), coût que le parallélisme ne rattrape qu'à partir de plusieurs milliers de fichiers — 0,76x à 1 500 fichiers, 1,05x à 3 500, 1,25x à 6 000. En dessous du seuil le pool ne démarre pas, donc aucun projet ne ralentit. `scanProject` accepte `workers` et `workerPath` ; `ProjectScanResult.workersUsed` dit quel régime a servi.
+- **`rootDirs`** en configuration : dossiers de premier niveau à scanner. La liste était figée, donc un projet organisé sous `modules/` ou `views/` ne scannait rien tout en signalant un succès.
+- **CI GitHub Actions** (lint, format, types, tests, build, `npm pack` sur Node 22 et 24) et workflow de publication avec attestation de provenance npm.
+- **`SECURITY.md`**, `.nvmrc`.
+- 40 tests de régression supplémentaires (105 → 145).
+
+## [1.1.0] - 2026-07-02
 
 ### Added
 

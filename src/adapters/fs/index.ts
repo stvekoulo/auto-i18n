@@ -3,6 +3,7 @@
  */
 
 import { readdir, readFile, writeFile, mkdir, copyFile, access } from 'fs/promises';
+import { constants } from 'fs';
 import { join, extname, relative } from 'path';
 import type { Catalog } from '../../core/types.js';
 
@@ -51,10 +52,14 @@ export interface CollectOptions {
 
 function globToRegex(pattern: string): RegExp {
   const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    // `?` est échappé ici puis retraduit plus bas : sans cela il resterait le
+    // quantificateur « optionnel » de RegExp et `foo?.ts` ne dirait pas ce que
+    // l'auteur du pattern croit.
+    .replace(/[.+^${}()|[\]\\?]/g, '\\$&')
     .replace(/\*\*/g, '{{GLOBSTAR}}')
     .replace(/\*/g, '[^/]*')
-    .replace(/\{\{GLOBSTAR\}\}/g, '.*');
+    .replace(/\{\{GLOBSTAR\}\}/g, '.*')
+    .replace(/\\\?/g, '[^/]');
   return new RegExp(`^${escaped}$`);
 }
 
@@ -123,23 +128,84 @@ export async function writeText(path: string, content: string): Promise<void> {
   await writeFile(path, content, 'utf-8');
 }
 
+const MAX_BACKUPS = 100;
+
+/**
+ * Copie `path` vers une sauvegarde libre et renvoie son chemin.
+ *
+ * N'écrase jamais une sauvegarde existante : deux `sync --write` successifs
+ * détruiraient sinon la version d'origine. `COPYFILE_EXCL` rend le choix du nom
+ * atomique plutôt que sujet à une course entre le test et la copie.
+ */
 export async function backupFile(path: string): Promise<string> {
-  const backupPath = `${path}.backup`;
-  await copyFile(path, backupPath);
-  return backupPath;
+  for (let n = 1; n <= MAX_BACKUPS; n++) {
+    const backupPath = n === 1 ? `${path}.backup` : `${path}.backup.${n}`;
+    try {
+      await copyFile(path, backupPath, constants.COPYFILE_EXCL);
+      return backupPath;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    }
+  }
+  throw new Error(`Trop de sauvegardes pour ${path} (${MAX_BACKUPS}). Faites le ménage.`);
 }
 
 export async function ensureDir(path: string): Promise<void> {
   await mkdir(path, { recursive: true });
 }
 
-/** Lit un catalogue JSON ; renvoie `{}` si le fichier est absent ou illisible. */
+export class CatalogParseError extends Error {
+  constructor(
+    public readonly path: string,
+    public readonly detail: string,
+  ) {
+    super(`Catalogue illisible : ${path} — ${detail}. Corrigez ou supprimez ce fichier.`);
+    this.name = 'CatalogParseError';
+  }
+}
+
+/**
+ * Lit un catalogue JSON à plat.
+ *
+ * Fichier absent → `{}` (cas normal au premier run). Fichier présent mais
+ * invalide → erreur : le traiter comme vide reviendrait à retraduire tout le
+ * catalogue puis à écraser le fichier, donc à perdre des traductions.
+ */
 export async function readCatalog(path: string): Promise<Catalog> {
+  let raw: string;
   try {
-    return JSON.parse(await readFile(path, 'utf-8')) as Catalog;
+    raw = await readFile(path, 'utf-8');
   } catch {
     return {};
   }
+
+  // Un BOM en tête ferait échouer JSON.parse ; certains éditeurs en ajoutent un.
+  const json = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch (err) {
+    throw new CatalogParseError(path, err instanceof Error ? err.message : 'JSON invalide');
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new CatalogParseError(path, 'objet JSON attendu');
+  }
+
+  const catalog: Catalog = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    // Seule clé dont l'affectation toucherait le prototype au lieu de l'objet.
+    if (key === '__proto__') continue;
+    if (typeof value !== 'string') {
+      throw new CatalogParseError(
+        path,
+        `la clé "${key}" n'est pas une chaîne (catalogue à plat attendu)`,
+      );
+    }
+    catalog[key] = value;
+  }
+  return catalog;
 }
 
 export async function writeCatalog(path: string, catalog: Catalog): Promise<void> {

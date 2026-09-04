@@ -9,7 +9,7 @@ import type { SourceFile } from 'ts-morph';
 import type { ExtractedString, Runtime } from '../types.js';
 import { extractStrings, detectRuntime } from '../extraction/index.js';
 import { getIgnoreReason, type FilterOptions, type IgnoreReason } from '../filters/index.js';
-import { parseSource } from '../extraction/parse.js';
+import { parseSource, getSyntaxErrors } from '../extraction/parse.js';
 
 export interface IgnoredString {
   value: string;
@@ -26,6 +26,8 @@ export interface FileScanResult {
   ignored: IgnoredString[];
   /** Runtime du fichier (client/server) — pour guider le câblage. */
   runtime: Runtime;
+  /** Erreurs de syntaxe ; non vide ⇒ le reste du résultat n'est pas fiable. */
+  syntaxErrors: string[];
 }
 
 /** Scanne un AST déjà parsé. */
@@ -34,6 +36,11 @@ export function scanSourceFile(
   file: string,
   options: FilterOptions = {},
 ): FileScanResult {
+  const syntaxErrors = getSyntaxErrors(sourceFile);
+  const runtime = detectRuntime(sourceFile);
+  // Arbre partiel : l'extraction ressortirait vide ou fausse. On s'arrête ici.
+  if (syntaxErrors.length > 0) return { strings: [], ignored: [], runtime, syntaxErrors };
+
   const strings: ExtractedString[] = [];
   const ignored: IgnoredString[] = [];
 
@@ -52,7 +59,7 @@ export function scanSourceFile(
     }
   }
 
-  return { strings, ignored, runtime: detectRuntime(sourceFile) };
+  return { strings, ignored, runtime, syntaxErrors };
 }
 
 /** Scanne un contenu source brut (parse + scan). Pratique pour les tests. */

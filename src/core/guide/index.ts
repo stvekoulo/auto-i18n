@@ -7,7 +7,14 @@
  */
 
 import { relative } from 'path';
-import type { ExtractedString, Runtime, StringKind } from '../types.js';
+import {
+  compareCodePoints,
+  formatTranslationArgs,
+  type ExtractedString,
+  type Runtime,
+  type StringKind,
+  type TemplateVariable,
+} from '../types.js';
 
 export interface GuideInput {
   projectRoot: string;
@@ -28,7 +35,7 @@ interface GuideString {
   kind: StringKind;
   safety: ExtractedString['safety'];
   reviewReason?: ExtractedString['reviewReason'];
-  variables?: string[];
+  variables?: TemplateVariable[];
   pluralHint?: boolean;
 }
 
@@ -45,7 +52,7 @@ export interface PluralCandidate {
   line: number;
   value: string;
   key: string;
-  variables: string[];
+  variables: TemplateVariable[];
 }
 
 export interface GuideModel {
@@ -65,7 +72,7 @@ function suggestReplacement(s: GuideString): string {
   }
   if (s.pluralHint) return '⚠ pluriel probable — voir section ICU';
   if (s.kind === 'template' && s.variables && s.variables.length > 0) {
-    return `t("${s.key}", { ${s.variables.join(', ')} })`;
+    return `t("${s.key}", { ${formatTranslationArgs(s.variables)} })`;
   }
   if (s.kind === 'jsx-text') return `{t("${s.key}")}`;
   return `t("${s.key}")`;
@@ -121,8 +128,8 @@ export function buildGuideModel(input: GuideInput): GuideModel {
     });
   }
 
-  files.sort((a, b) => a.relPath.localeCompare(b.relPath));
-  pluralCandidates.sort((a, b) => a.relPath.localeCompare(b.relPath) || a.line - b.line);
+  files.sort((a, b) => compareCodePoints(a.relPath, b.relPath));
+  pluralCandidates.sort((a, b) => compareCodePoints(a.relPath, b.relPath) || a.line - b.line);
 
   return {
     sourceLocale: input.sourceLocale,
@@ -142,7 +149,7 @@ function escapeCell(value: string): string {
 
 /** Suggestion ICU pour un candidat pluriel : garde le texte détecté comme forme `other`. */
 function icuSuggestion(candidate: PluralCandidate): string {
-  const arg = candidate.variables[0] ?? 'count';
+  const arg = candidate.variables[0]?.name ?? 'count';
   const other = candidate.value.replace(`{${arg}}`, '#');
   return `"${candidate.key}": "{${arg}, plural, one {# ...} other {${other}}}"`;
 }

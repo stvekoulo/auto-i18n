@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseSource } from '../../src/core/extraction';
+import { parseSource, getSyntaxErrors } from '../../src/core/extraction';
 import { computeWriteEdits, applyEdits } from '../../src/core/write';
 import type { Runtime } from '../../src/core/types';
 
@@ -142,5 +142,27 @@ describe('core/write — idempotence', () => {
     expect(second.result.written).toBe(0);
     expect(second.result.edits).toEqual([]);
     expect(second.output).toBe(first.output);
+  });
+});
+
+describe('core/write — arguments de template', () => {
+  it('génère un objet JS valide pour une expression composée', () => {
+    const content =
+      "'use client';\nexport function W({ user, count }) {\n  return <p>{`Salut ${user.name}, ${count} messages`}</p>;\n}\n";
+    const { result, output } = write(content, 'client', {
+      'Salut {userName}, {count} messages': 'salut',
+    });
+
+    expect(result.written).toBe(1);
+    expect(output).toContain('t("salut", { userName: user.name, count })');
+    // Le code produit doit être re-parsable : `{ user.name }` serait une SyntaxError.
+    expect(getSyntaxErrors(parseSource(output, 'W.tsx'))).toEqual([]);
+  });
+
+  it('ne compte pas comme câblée une string absente du keyMap', () => {
+    const content = "'use client';\nexport function W() {\n  return <p>Bonjour</p>;\n}\n";
+    const { result } = write(content, 'client', {});
+    expect(result.written).toBe(0);
+    expect(result.edits).toEqual([]);
   });
 });

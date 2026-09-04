@@ -7,19 +7,25 @@
 
 import { join, resolve } from 'path';
 import { scanProject } from './scan.js';
-import { translateCatalogs, type TranslateCatalogsResult } from './translate.js';
+import {
+  translateCatalogs,
+  type ProviderSource,
+  type TranslateCatalogsResult,
+} from './translate.js';
 import { buildSourceCatalog } from '../core/catalog/index.js';
 import type { Catalog, ExtractedString, Runtime } from '../core/types.js';
 import { readCatalog, writeCatalog, ensureDir } from '../adapters/fs/index.js';
-import type { TranslationProvider } from '../adapters/translation/index.js';
 
 export interface RunSyncInput {
   projectRoot: string;
-  provider: TranslationProvider;
+  /** Provider, ou fabrique appelée seulement s'il y a du texte à traduire. */
+  provider: ProviderSource;
   sourceLocale: string;
   targetLocales: string[];
   messagesDir: string;
   ignore?: string[];
+  /** Dossiers racine a scanner (defaut : liste integree). */
+  rootDirs?: string[];
 }
 
 export interface SyncReport {
@@ -38,9 +44,10 @@ export interface SyncReport {
 }
 
 export async function runSync(input: RunSyncInput): Promise<SyncReport> {
-  const { projectRoot, provider, sourceLocale, targetLocales, messagesDir, ignore } = input;
+  const { projectRoot, provider, sourceLocale, targetLocales, messagesDir, ignore, rootDirs } =
+    input;
 
-  const scan = await scanProject(projectRoot, { ignorePatterns: ignore });
+  const scan = await scanProject(projectRoot, { ignorePatterns: ignore, rootDirs });
 
   const absMessagesDir = resolve(projectRoot, messagesDir);
   await ensureDir(absMessagesDir);
@@ -56,10 +63,14 @@ export async function runSync(input: RunSyncInput): Promise<SyncReport> {
   } = buildSourceCatalog(values, existingSource);
   await writeCatalog(sourcePath, sourceCatalog);
 
-  const existingTargets: Record<string, Catalog> = {};
-  for (const locale of targetLocales) {
-    existingTargets[locale] = await readCatalog(join(absMessagesDir, `${locale}.json`));
-  }
+  const existingTargets = Object.fromEntries(
+    await Promise.all(
+      targetLocales.map(
+        async locale =>
+          [locale, await readCatalog(join(absMessagesDir, `${locale}.json`))] as const,
+      ),
+    ),
+  ) as Record<string, Catalog>;
 
   const translation = await translateCatalogs({
     provider,
@@ -69,10 +80,12 @@ export async function runSync(input: RunSyncInput): Promise<SyncReport> {
     existingTargets,
   });
 
-  for (const result of translation.byLocale) {
-    if (result.status === 'failed') continue; // on préserve le fichier existant
-    await writeCatalog(join(absMessagesDir, `${result.locale}.json`), result.catalog);
-  }
+  await Promise.all(
+    translation.byLocale
+      // Une locale en échec garde son fichier existant intact.
+      .filter(result => result.status !== 'failed')
+      .map(result => writeCatalog(join(absMessagesDir, `${result.locale}.json`), result.catalog)),
+  );
 
   let safe = 0;
   let review = 0;

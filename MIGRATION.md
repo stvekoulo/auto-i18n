@@ -1,4 +1,64 @@
-# Guide de migration — 0.x → 1.0
+# Guides de migration
+
+- [1.x → 2.0](#migration-1x--20) — durcissement, nommage ICU, Node 22
+- [0.x → 1.0](#migration-0x--10) — refonte zéro-mutation
+
+---
+
+## Migration 1.x → 2.0
+
+La `2.0` ne change pas le modèle : elle corrige des défauts qui cassaient ou corrompaient des projets, et remet les dépendances à niveau. Trois points demandent une action.
+
+### 1. Node.js 22.12 minimum
+
+Node 18 et 20 sont en fin de vie et les dépendances à jour l'exigent. Mettez à jour votre runtime local et vos runners CI. Un `.nvmrc` est fourni.
+
+### 2. Les variables d'interpolation deviennent des identifiants ICU
+
+Avant, un texte comme :
+
+```tsx
+<p>{`Bonjour ${user.name}, tu as ${count} messages`}</p>
+```
+
+produisait la clé `"Bonjour {user.name}, tu as {count} messages"`. Le placeholder `{user.name}` n'est **pas** un argument ICU valide : `next-intl` refuse ce message au runtime. Et `sync --write` générait `t("clé", { user.name, count })`, une `SyntaxError`.
+
+La `2.0` dérive un identifiant depuis l'expression :
+
+| Expression source | Placeholder de catalogue | Appel généré                               |
+| ----------------- | ------------------------ | ------------------------------------------ |
+| `count`           | `{count}`                | `t("clé", { count })`                      |
+| `user.name`       | `{userName}`             | `t("clé", { userName: user.name })`        |
+| `items[0].label`  | `{itemsLabel}`           | `t("clé", { itemsLabel: items[0].label })` |
+
+**Action requise** si vos catalogues contiennent déjà des placeholders à points :
+
+```bash
+# Repérer les messages concernés
+grep -rn '{[a-zA-Z_$][a-zA-Z0-9_$]*\.' messages/
+```
+
+Renommez ces placeholders dans **tous** les fichiers `messages/*.json` (source et cibles), et adaptez les appels `t()` déjà câblés dans votre code. Les clés elles-mêmes ne changent pas — seul le contenu des messages est concerné. Sans placeholder à points, il n'y a rien à faire.
+
+### 3. Configuration et catalogues désormais validés
+
+Ce qui était ignoré en silence lève maintenant une erreur explicite :
+
+- **Configuration invalide** — champ inconnu (`messageDir` au lieu de `messagesDir`), code de langue mal formé, langue à la fois source et cible, doublons, provider inconnu, `messagesDir` sortant du projet. Tous les problèmes sont listés d'un coup.
+- **Catalogue illisible** — un `messages/*.json` qui n'est pas du JSON à plat. Auparavant traité comme vide, donc retraduit intégralement **et écrasé**. Corrigez ou supprimez le fichier ; l'outil n'y touche plus tant qu'il est invalide.
+
+Si vos catalogues sont **imbriqués** (`{"Home": {"title": "..."}}`), l'outil ne les a jamais gérés : aplatissez-les avant de passer en 2.0.
+
+### Bon à savoir (aucune action requise)
+
+- Le scan ne descend que dans une liste de dossiers de premier niveau. Si votre code vit ailleurs (`modules/`, `views/`…), renseignez le nouveau champ **`rootDirs`** — auparavant le scan renvoyait zéro texte en signalant un succès.
+- `sync` n'exige plus de clé API quand tout est déjà traduit.
+- L'ordre des clés dans les catalogues change une fois (tri par point de code au lieu de `localeCompare`). Attendez-vous à un diff unique au premier `sync`, puis à un ordre stable partout, y compris en CI.
+- Usage programmatique : `ExtractedString.variables` passe de `string[]` à `TemplateVariable[]` (`{ expression, name }`).
+
+---
+
+## Migration 0.x → 1.0
 
 La version `1.0` est une **refonte majeure**. Le changement de fond : **le package ne réécrit plus votre code source**. Tout le reste en découle.
 

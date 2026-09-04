@@ -29,7 +29,7 @@ describe('core/extraction — kinds', () => {
     );
     const t = valueOf(s, 'Salut {name}');
     expect(t?.kind).toBe('template');
-    expect(t?.variables).toEqual(['name']);
+    expect(t?.variables).toEqual([{ expression: 'name', name: 'name' }]);
   });
 
   it('ignore le premier argument des appels t()', () => {
@@ -103,5 +103,48 @@ describe('core/scan — filtrage intégré', () => {
     expect(ignored.some(i => i.value === 'https://x.com' && i.reason === 'absolute_url')).toBe(
       true,
     );
+  });
+});
+
+describe('core/extraction — noms ICU des variables de template', () => {
+  it("dérive un identifiant valide d'une expression composée", () => {
+    const s = extract(
+      'export default function C({ user }){ return <p>{`Salut ${user.name}`}</p>; }',
+    );
+    const t = valueOf(s, 'Salut {userName}');
+    expect(t?.variables).toEqual([{ expression: 'user.name', name: 'userName' }]);
+  });
+
+  it('ne produit jamais de point dans un nom (ICU refuserait le message)', () => {
+    const s = extract(
+      'export default function C({ a }){ return <p>{`${a.b.c} et ${a["d"]()}`}</p>; }',
+    );
+    for (const v of s.flatMap(x => x.variables ?? [])) {
+      expect(v.name).toMatch(/^[A-Za-z_][A-Za-z0-9_]*$/);
+    }
+  });
+
+  it('dédoublonne une expression répétée et désambiguïse les collisions', () => {
+    const s = extract(
+      'export default function C({ a, b }){ return <p>{`${a.id} ${a.id} ${b.id}`}</p>; }',
+    );
+    const t = s.find(x => x.kind === 'template');
+    expect(t?.variables).toEqual([
+      { expression: 'a.id', name: 'aId' },
+      { expression: 'b.id', name: 'bId' },
+    ]);
+    expect(t?.value).toBe('{aId} {aId} {bId}');
+  });
+});
+
+describe('core/extraction — erreurs de syntaxe', () => {
+  it('signale un fichier cassé au lieu de le compter comme vide', () => {
+    const result = scanContent('export default function A( { return <p>Hello</p>; }', 'A.tsx');
+    expect(result.syntaxErrors.length).toBeGreaterThan(0);
+    expect(result.strings).toEqual([]);
+  });
+
+  it('ne signale rien sur un fichier valide', () => {
+    expect(scanContent('export default () => <p>Bonjour</p>;', 'A.tsx').syntaxErrors).toEqual([]);
   });
 });
