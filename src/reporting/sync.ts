@@ -30,6 +30,9 @@ export function renderSyncReport(projectRoot: string, report: SyncReport): void 
         logger.success(
           `${result.locale} — ${result.translated} string${result.translated > 1 ? 's' : ''} traduite${result.translated > 1 ? 's' : ''}`,
         );
+        if (result.error) {
+          logger.warn(`${result.locale} — ${result.error.message}`);
+        }
         break;
       case 'up_to_date':
         logger.dim(`${result.locale} — déjà à jour`);
@@ -38,6 +41,16 @@ export function renderSyncReport(projectRoot: string, report: SyncReport): void 
         logger.warn(`${result.locale} — échec (${result.error?.kind}) : ${result.error?.message}`);
         break;
     }
+  }
+
+  if (report.prunedKeys.length > 0) {
+    logger.dim(
+      `${report.prunedKeys.length} clé${report.prunedKeys.length > 1 ? 's' : ''} orpheline${report.prunedKeys.length > 1 ? 's' : ''} retirée${report.prunedKeys.length > 1 ? 's' : ''} (--prune) : ${report.prunedKeys.join(', ')}`,
+    );
+  } else if (report.orphanedKeys.length > 0) {
+    logger.warn(
+      `${report.orphanedKeys.length} clé${report.orphanedKeys.length > 1 ? 's' : ''} orpheline${report.orphanedKeys.length > 1 ? 's' : ''} (texte disparu du code) — lancez "sync --prune" pour les retirer`,
+    );
   }
 
   if (report.detected.review > 0) {

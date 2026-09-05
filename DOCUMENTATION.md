@@ -99,10 +99,12 @@ next-auto-i18n init [--source <locale>] [--locale <l1,l2>] [--provider <name>] [
 À lancer régulièrement. Rescanne, met à jour le catalogue source (merge stable : les clés existantes sont préservées) et traduit uniquement les clés manquantes des langues cibles.
 
 ```bash
-next-auto-i18n sync
+next-auto-i18n sync [--prune]
 ```
 
 Code de sortie ≠ 0 si une locale n'a pas pu être traduite.
+
+Le merge stable ne retire jamais une clé de son côté : une string supprimée du code laisse sa clé — traduite dans chaque locale — accumulée indéfiniment dans les catalogues. `--prune` retire du catalogue source les clés dont le texte n'est plus détecté dans le code, ce qui les retire par ricochet de chaque locale cible. Sans `--prune`, ces clés sont seulement signalées (`check` les liste aussi) : un scan incomplet (fichier temporairement ignoré) ne doit jamais effacer une traduction au silence.
 
 ### check
 
@@ -112,7 +114,7 @@ Diagnostic en lecture seule, pour la CI. N'écrit rien.
 next-auto-i18n check [--json]
 ```
 
-Rapporte : fichiers scannés, strings détectées (sûres / à revoir), strings non encore cataloguées (un `sync` les ajouterait), traductions manquantes par locale, fichiers non parsables. **Code de sortie 1** s'il reste du travail (non catalogué ou non traduit), 0 sinon.
+Rapporte : fichiers scannés, strings détectées (sûres / à revoir), strings non encore cataloguées (un `sync` les ajouterait), traductions manquantes par locale, clés orphelines (un `sync --prune` les retirerait), fichiers non parsables. **Code de sortie 1** s'il reste du travail (non catalogué ou non traduit), 0 sinon — les clés orphelines n'affectent jamais ce code de sortie.
 
 ## Câblage automatique (`sync --write`)
 

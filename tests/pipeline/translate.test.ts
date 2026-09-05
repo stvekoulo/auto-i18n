@@ -71,6 +71,25 @@ describe('pipeline/translate — translateCatalogs', () => {
     expect(result.byLocale[0].error?.kind).toBe('placeholder');
   });
 
+  it('garde les traductions valides quand une seule clé a des placeholders incohérents', async () => {
+    const provider = new FakeProvider(async texts =>
+      texts.map(t => (t === 'Hi {name}' ? 'Bonjour' /* {name} perdu */ : `FR:${t}`)),
+    );
+    const result = await translateCatalogs({
+      provider,
+      sourceLocale: 'en',
+      sourceCatalog: { greet: 'Hi {name}', bye: 'Bye' },
+      targetLocales: ['fr'],
+      existingTargets: { fr: {} },
+    });
+    const fr = result.byLocale[0];
+    expect(result.failed).toEqual([]);
+    expect(fr.status).toBe('updated');
+    expect(fr.translated).toBe(1);
+    expect(fr.catalog).toEqual({ bye: 'FR:Bye' });
+    expect(fr.error?.kind).toBe('placeholder');
+  });
+
   it('réessaie sur erreur retryable puis réussit', async () => {
     let attempt = 0;
     const provider = new FakeProvider(async texts => {

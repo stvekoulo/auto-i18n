@@ -136,24 +136,43 @@ async function translateOneLocale(
     );
 
     const fresh: Catalog = {};
+    const badKeys: string[] = [];
     for (let i = 0; i < keys.length; i++) {
       const src = sourceCatalog[keys[i]];
       const out = translations[i];
-      if (!placeholdersMatch(src, out)) {
-        throw new TranslationError(
-          `Placeholders incohérents pour "${keys[i]}" (${locale}).`,
-          'provider',
-          false,
-        );
+      if (placeholdersMatch(src, out)) {
+        fresh[keys[i]] = out;
+      } else {
+        badKeys.push(keys[i]);
       }
-      fresh[keys[i]] = out;
+    }
+
+    // Une clé à placeholders incohérents ne doit pas faire perdre les autres
+    // traductions déjà obtenues dans ce même lot. Si tout le lot est mauvais,
+    // on retombe sur l'échec classique (catch ci-dessous) ; sinon les clés
+    // fautives restent simplement manquantes et seront retentées au prochain
+    // sync, sans jeter le reste.
+    if (badKeys.length === keys.length) {
+      throw new TranslationError(
+        `Placeholders incohérents pour "${badKeys[0]}" (${locale}).`,
+        'provider',
+        false,
+      );
     }
 
     return {
       locale,
       catalog: mergeTranslations(sourceCatalog, existing, fresh),
-      translated: keys.length,
+      translated: keys.length - badKeys.length,
       status: 'updated',
+      ...(badKeys.length > 0
+        ? {
+            error: {
+              message: `Placeholders incohérents pour ${badKeys.length} clé(s) (${locale}) : ${badKeys.join(', ')}.`,
+              kind: 'placeholder' as const,
+            },
+          }
+        : {}),
     };
   } catch (error) {
     const kind =

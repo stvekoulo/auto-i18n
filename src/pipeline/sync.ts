@@ -12,7 +12,7 @@ import {
   type ProviderSource,
   type TranslateCatalogsResult,
 } from './translate.js';
-import { buildSourceCatalog } from '../core/catalog/index.js';
+import { buildSourceCatalog, orphanKeys, pruneCatalog } from '../core/catalog/index.js';
 import type { Catalog, ExtractedString, Runtime } from '../core/types.js';
 import { readCatalog, writeCatalog, ensureDir } from '../adapters/fs/index.js';
 
@@ -26,6 +26,14 @@ export interface RunSyncInput {
   ignore?: string[];
   /** Dossiers racine a scanner (defaut : liste integree). */
   rootDirs?: string[];
+  /**
+   * Retire du catalogue source (et par ricochet de chaque locale cible) les
+   * clés dont le texte n'est plus détecté dans le code. Sans cette option,
+   * les clés orphelines sont seulement signalées (`orphanedKeys`), jamais
+   * supprimées — un scan incomplet (fichier ignoré par erreur) ne doit pas
+   * effacer des traductions au silence.
+   */
+  prune?: boolean;
 }
 
 export interface SyncReport {
@@ -37,6 +45,10 @@ export interface SyncReport {
   reusedKeys: string[];
   sourceKeyCount: number;
   translation: TranslateCatalogsResult;
+  /** Clés orphelines détectées (texte disparu du code). Vide si `prune` est actif : déjà retirées. */
+  orphanedKeys: string[];
+  /** Clés effectivement retirées ce run (non vide seulement avec `prune: true`). */
+  prunedKeys: string[];
   /** Données brutes pour la génération du guide d'intégration. */
   strings: ExtractedString[];
   keyMap: Map<string, string>;
@@ -44,17 +56,32 @@ export interface SyncReport {
 }
 
 export async function runSync(input: RunSyncInput): Promise<SyncReport> {
-  const { projectRoot, provider, sourceLocale, targetLocales, messagesDir, ignore, rootDirs } =
-    input;
+  const {
+    projectRoot,
+    provider,
+    sourceLocale,
+    targetLocales,
+    messagesDir,
+    ignore,
+    rootDirs,
+    prune = false,
+  } = input;
 
   const scan = await scanProject(projectRoot, { ignorePatterns: ignore, rootDirs });
 
   const absMessagesDir = resolve(projectRoot, messagesDir);
   await ensureDir(absMessagesDir);
   const sourcePath = join(absMessagesDir, `${sourceLocale}.json`);
-  const existingSource = await readCatalog(sourcePath);
+  const rawExistingSource = await readCatalog(sourcePath);
 
   const values = scan.strings.map(s => s.value);
+
+  // Détection avant toute mutation : la liste rapportée doit refléter l'état
+  // réel du catalogue au début du run, que `prune` soit actif ou non.
+  const orphanedKeys = orphanKeys(rawExistingSource, values);
+  const prunedKeys = prune ? orphanedKeys : [];
+  const existingSource = prune ? pruneCatalog(rawExistingSource, orphanedKeys) : rawExistingSource;
+
   const {
     catalog: sourceCatalog,
     keyMap,
@@ -107,6 +134,8 @@ export async function runSync(input: RunSyncInput): Promise<SyncReport> {
     reusedKeys: reused,
     sourceKeyCount: Object.keys(sourceCatalog).length,
     translation,
+    orphanedKeys: prune ? [] : orphanedKeys,
+    prunedKeys,
     strings: scan.strings,
     keyMap,
     fileRuntimes: scan.fileRuntimes,

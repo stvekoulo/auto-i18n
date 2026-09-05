@@ -2,6 +2,9 @@ node_modules/
 dist/
 coverage/
 
+# Sortie générée par le skill graphify (analyse de code)
+graphify-out/
+
 # Variables d'environnement — ne jamais commiter
 .env
 .env.local

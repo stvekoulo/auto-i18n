@@ -56,6 +56,8 @@ function syncReport(over: Partial<SyncReport> = {}): SyncReport {
     reusedKeys: [],
     sourceKeyCount: 3,
     translation: { byLocale: [], totalTranslated: 0, failed: [] },
+    orphanedKeys: [],
+    prunedKeys: [],
     strings: [],
     keyMap: new Map(),
     fileRuntimes: new Map(),
@@ -235,6 +237,7 @@ describe('reporting/check', () => {
       sourceKeyCount: 2,
       missingByLocale: { en: [] },
       totalMissing: 0,
+      orphanedKeys: [],
       ok: true,
       ...over,
     };

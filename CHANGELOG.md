@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.1.0] - 2026-09-05
+
+### Added
+
+- **`sync --prune`** : retire du catalogue source les clés dont le texte a disparu du code, et par ricochet de chaque locale cible. Le merge stable de `sync` n'a jamais retiré de clé de son côté — un texte supprimé du code laissait sa clé traduite s'accumuler indéfiniment. Sans `--prune`, ces clés orphelines sont seulement signalées (`SyncReport.orphanedKeys`), jamais supprimées.
+- **`check` rapporte les clés orphelines** (`CheckReport.orphanedKeys`) — n'affecte jamais le code de sortie : une string temporairement invisible au scan (fichier ignoré, erreur de parsing) ne doit pas faire échouer la CI.
+
+### Fixed
+
+- **Écriture non atomique des catalogues.** `writeCatalog` faisait un `writeFile` direct ; un processus tué en pleine écriture (disque plein, CI annulée) laissait un JSON tronqué, sans sauvegarde pour ce fichier. Écrit désormais dans un fichier temporaire puis `rename()` (atomique, POSIX et Windows/NTFS).
+- **Une seule string à placeholders incohérents faisait perdre toute la locale.** `translateOneLocale` jetait dès la première clé fautive, ce qui rejetait aussi les traductions déjà obtenues pour les autres clés du même lot. Les traductions valides sont désormais conservées ; seule la clé fautive reste manquante (retentée au prochain `sync`).
+
 ## [2.0.0] - 2026-09-04
 
 Passe de durcissement : correction de défauts qui cassaient ou corrompaient les projets utilisateurs, fermeture des fuites de clé API, et remise à niveau des dépendances.

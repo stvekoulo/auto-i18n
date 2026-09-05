@@ -3,6 +3,8 @@ import {
   buildSourceCatalog,
   missingKeys,
   staleKeys,
+  orphanKeys,
+  pruneCatalog,
   extractPlaceholders,
   placeholdersMatch,
   mergeTranslations,
@@ -43,6 +45,25 @@ describe('core/catalog — diff', () => {
     const target = { a: 'x', c: 'y' };
     expect(missingKeys(source, target)).toEqual(['b']);
     expect(staleKeys(source, target)).toEqual(['c']);
+  });
+});
+
+describe('core/catalog — orphanKeys / pruneCatalog', () => {
+  it('détecte les clés dont le texte a disparu du scan', () => {
+    const source = { save: 'Save', cancel: 'Cancel', old: 'Deprecated text' };
+    expect(orphanKeys(source, ['Save', 'Cancel'])).toEqual(['old']);
+  });
+
+  it('ne signale rien si tout le texte est encore présent', () => {
+    const source = { save: 'Save', cancel: 'Cancel' };
+    expect(orphanKeys(source, ['Save', 'Cancel', 'Extra'])).toEqual([]);
+  });
+
+  it('retire uniquement les clés demandées', () => {
+    const source = { save: 'Save', cancel: 'Cancel', old: 'Deprecated' };
+    expect(pruneCatalog(source, ['old'])).toEqual({ save: 'Save', cancel: 'Cancel' });
+    // Sans clé à retirer, renvoie le même objet (pas de copie inutile).
+    expect(pruneCatalog(source, [])).toBe(source);
   });
 });
 

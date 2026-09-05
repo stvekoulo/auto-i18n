@@ -24,6 +24,8 @@ export interface RunSyncCommandOptions {
   write?: boolean;
   /** Avec `write`, calcule les changements sans les écrire sur disque. */
   dryRun?: boolean;
+  /** Retire du catalogue les clés dont le texte a disparu du code (opt-in). */
+  prune?: boolean;
 }
 
 export interface RunSyncCommandResult {
@@ -35,7 +37,7 @@ export interface RunSyncCommandResult {
 export async function runSyncCommand(
   options: RunSyncCommandOptions,
 ): Promise<RunSyncCommandResult> {
-  const { projectRoot, write = false, dryRun = false } = options;
+  const { projectRoot, write = false, dryRun = false, prune = false } = options;
   const config = await loadConfig(projectRoot);
 
   loadEnv(projectRoot);
@@ -60,6 +62,7 @@ export async function runSyncCommand(
     messagesDir: config.messagesDir,
     ignore: config.ignore,
     rootDirs: config.rootDirs,
+    prune,
   });
 
   renderSyncReport(projectRoot, report);

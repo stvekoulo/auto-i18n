@@ -9,6 +9,7 @@
  */
 
 import type { Catalog, ExtractedString } from '../types.js';
+import { orphanKeys } from '../catalog/index.js';
 
 export interface CheckInput {
   strings: ExtractedString[];
@@ -27,6 +28,13 @@ export interface CheckReport {
   sourceKeyCount: number;
   missingByLocale: Record<string, string[]>;
   totalMissing: number;
+  /**
+   * Clés du catalogue source dont le texte n'est plus détecté dans le code
+   * (`sync --prune` les retire). Informatif — n'affecte pas `ok`, une string
+   * temporairement invisible au scan (fichier ignoré, erreur de parsing) ne
+   * doit pas faire échouer la CI.
+   */
+  orphanedKeys: string[];
   /** true si aucun travail en attente : rien à cataloguer et traductions complètes. */
   ok: boolean;
 }
@@ -55,6 +63,11 @@ export function buildCheckReport(input: CheckInput): CheckReport {
     totalMissing += missing.length;
   }
 
+  const orphanedKeys = orphanKeys(
+    sourceCatalog,
+    strings.map(s => s.value),
+  );
+
   return {
     filesScanned,
     parseErrors,
@@ -63,6 +76,7 @@ export function buildCheckReport(input: CheckInput): CheckReport {
     sourceKeyCount: sourceKeys.length,
     missingByLocale,
     totalMissing,
+    orphanedKeys,
     ok: uncatalogued.length === 0 && totalMissing === 0,
   };
 }

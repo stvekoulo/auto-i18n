@@ -52,6 +52,18 @@ export function renderCheckReport(projectRoot: string, report: CheckReport): voi
     }
   }
 
+  if (report.orphanedKeys.length > 0) {
+    logger.warn(
+      `${report.orphanedKeys.length} clé${report.orphanedKeys.length > 1 ? 's' : ''} orpheline${report.orphanedKeys.length > 1 ? 's' : ''} (texte disparu du code) — lancez "sync --prune" pour les retirer`,
+    );
+    for (const key of report.orphanedKeys.slice(0, MAX_LIST)) {
+      logger.dim(`  ${key}`);
+    }
+    if (report.orphanedKeys.length > MAX_LIST) {
+      logger.dim(`  ... et ${report.orphanedKeys.length - MAX_LIST} autre(s)`);
+    }
+  }
+
   if (report.parseErrors.length > 0) {
     logger.warn(
       `${report.parseErrors.length} fichier${report.parseErrors.length > 1 ? 's' : ''} non parsable${report.parseErrors.length > 1 ? 's' : ''} (ignoré${report.parseErrors.length > 1 ? 's' : ''})`,

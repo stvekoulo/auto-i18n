@@ -75,6 +75,30 @@ export function staleKeys(source: Catalog, target: Catalog): string[] {
   return Object.keys(target).filter(key => !(key in source));
 }
 
+/**
+ * Clés du catalogue source dont le texte n'est plus détecté dans le code.
+ *
+ * `buildSourceCatalog` ne retire jamais une clé de son côté (merge additif :
+ * l'historique des traductions déjà payées ne doit pas disparaître au moindre
+ * scan incomplet). Une string supprimée du code laisse donc sa clé accumulée
+ * indéfiniment dans le catalogue — `check` la signale, `sync --prune` la retire.
+ */
+export function orphanKeys(sourceCatalog: Catalog, scannedValues: Iterable<string>): string[] {
+  const present = new Set(scannedValues);
+  return Object.keys(sourceCatalog).filter(key => !present.has(sourceCatalog[key]));
+}
+
+/** Retire `keysToRemove` d'un catalogue (utilisé par `sync --prune`). */
+export function pruneCatalog(catalog: Catalog, keysToRemove: readonly string[]): Catalog {
+  if (keysToRemove.length === 0) return catalog;
+  const drop = new Set(keysToRemove);
+  const pruned: Catalog = {};
+  for (const [key, value] of Object.entries(catalog)) {
+    if (!drop.has(key)) pruned[key] = value;
+  }
+  return pruned;
+}
+
 const PLACEHOLDER_RE = /\{([^}]+)\}/g;
 
 /** Ensemble trié des placeholders `{var}` présents dans un texte. */

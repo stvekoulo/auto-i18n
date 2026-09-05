@@ -58,6 +58,7 @@ Exemples :
   $ next-auto-i18n sync                      Met à jour catalogues + traduit le manquant
   $ next-auto-i18n sync --write --dry-run    Aperçu du câblage automatique des strings sûres
   $ next-auto-i18n sync --write              Câble les strings sûres en t() (avec .backup)
+  $ next-auto-i18n sync --prune              Retire du catalogue les clés dont le texte a disparu du code
   $ next-auto-i18n check                     Diagnostic (CI) — code de sortie ≠ 0 si travail en attente
   $ next-auto-i18n check --json              Rapport machine pour scripts/CI
 
@@ -120,12 +121,14 @@ program
     false,
   )
   .option('--dry-run', 'Avec --write, affiche le diff sans écrire sur disque', false)
-  .action(async (options: { write?: boolean; dryRun?: boolean }) => {
+  .option('--prune', 'Retire du catalogue les clés dont le texte a disparu du code', false)
+  .action(async (options: { write?: boolean; dryRun?: boolean; prune?: boolean }) => {
     try {
       const { exitCode } = await runSyncCommand({
         projectRoot: process.cwd(),
         write: options.write,
         dryRun: options.dryRun,
+        prune: options.prune,
       });
       finish(exitCode);
     } catch (err) {

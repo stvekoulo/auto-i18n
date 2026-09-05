@@ -56,6 +56,18 @@ describe('core/check — buildCheckReport', () => {
     expect(report.ok).toBe(true);
   });
 
+  it('signale les clés orphelines sans affecter ok (CI ne doit pas casser)', () => {
+    const report = buildCheckReport({
+      strings: [str('Bonjour')],
+      filesScanned: 1,
+      parseErrors: [],
+      sourceCatalog: { bonjour: 'Bonjour', vieux: 'Texte disparu' },
+      targetCatalogs: { en: { bonjour: 'Hello', vieux: 'Old' } },
+    });
+    expect(report.orphanedKeys).toEqual(['vieux']);
+    expect(report.ok).toBe(true);
+  });
+
   it('dé-duplique les valeurs non cataloguées', () => {
     const report = buildCheckReport({
       strings: [str('X'), str('X')],

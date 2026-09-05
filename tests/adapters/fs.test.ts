@@ -1,9 +1,10 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtemp, mkdir, rm, writeFile, readFile } from 'fs/promises';
+import { mkdtemp, mkdir, rm, writeFile, readFile, readdir } from 'fs/promises';
 import { basename, join } from 'path';
 import { tmpdir } from 'os';
 import {
   readCatalog,
+  writeCatalog,
   backupFile,
   collectSourceFiles,
   CatalogParseError,
@@ -52,6 +53,18 @@ describe('adapters/fs — readCatalog', () => {
     const catalog = await readCatalog(path);
     expect(catalog).toEqual({ a: 'b' });
     expect(Object.getPrototypeOf(catalog)).toBe(Object.prototype);
+  });
+});
+
+describe('adapters/fs — writeCatalog', () => {
+  it('écrit de façon atomique, sans fichier temporaire résiduel', async () => {
+    const dir = await makeDir();
+    const path = join(dir, 'fr.json');
+
+    await writeCatalog(path, { greet: 'Bonjour' });
+
+    expect(await readCatalog(path)).toEqual({ greet: 'Bonjour' });
+    expect((await readdir(dir)).filter(f => f.includes('.tmp-'))).toEqual([]);
   });
 });
 

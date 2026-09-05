@@ -1,6 +1,6 @@
 {
   "name": "next-auto-i18n",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Internationalisation zéro-mutation pour Next.js App Router : détecte, traduit (DeepL) et installe next-intl sans réécrire votre code.",
   "type": "module",
   "main": "./dist/index.js",

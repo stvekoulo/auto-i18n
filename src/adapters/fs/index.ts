@@ -2,7 +2,7 @@
  * Adapter système de fichiers — fonctions I/O feuilles, sans logique métier.
  */
 
-import { readdir, readFile, writeFile, mkdir, copyFile, access } from 'fs/promises';
+import { readdir, readFile, writeFile, mkdir, copyFile, access, rename } from 'fs/promises';
 import { constants } from 'fs';
 import { join, extname, relative } from 'path';
 import type { Catalog } from '../../core/types.js';
@@ -208,6 +208,16 @@ export async function readCatalog(path: string): Promise<Catalog> {
   return catalog;
 }
 
+/**
+ * Écrit un catalogue de façon atomique (fichier temporaire puis `rename`).
+ *
+ * Un `writeFile` direct laisserait un JSON tronqué si le processus est tué en
+ * plein milieu (dry-run, CI annulée, disque plein) : `readCatalog` échouerait
+ * ensuite sans qu'aucune sauvegarde n'existe pour ce fichier. `rename` sur un
+ * même volume est atomique aussi bien sous POSIX que sous Windows/NTFS.
+ */
 export async function writeCatalog(path: string, catalog: Catalog): Promise<void> {
-  await writeFile(path, JSON.stringify(catalog, null, 2) + '\n', 'utf-8');
+  const tmpPath = `${path}.tmp-${process.pid}`;
+  await writeFile(tmpPath, JSON.stringify(catalog, null, 2) + '\n', 'utf-8');
+  await rename(tmpPath, path);
 }

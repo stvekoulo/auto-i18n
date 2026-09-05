@@ -71,6 +71,40 @@ describe('pipeline/sync — runSync', () => {
     expect(en.nouveau).toBe('en:Nouveau'); // traduit
   });
 
+  it('signale les clés orphelines sans les retirer par défaut', async () => {
+    const dir = await makeProject({
+      'app/page.tsx': 'export default function P(){ return <h1>Bonjour</h1>; }',
+      'messages/fr.json': JSON.stringify({ bonjour: 'Bonjour', vieux: 'Texte disparu' }),
+      'messages/en.json': JSON.stringify({ bonjour: 'Hi', vieux: 'Old text' }),
+    });
+
+    const report = await runSync({ projectRoot: dir, ...base });
+
+    expect(report.orphanedKeys).toEqual(['vieux']);
+    expect(report.prunedKeys).toEqual([]);
+    // Toujours là — sans --prune, on ne supprime jamais de traduction.
+    expect(await readJson(dir, 'messages/fr.json')).toEqual({
+      bonjour: 'Bonjour',
+      vieux: 'Texte disparu',
+    });
+    expect(await readJson(dir, 'messages/en.json')).toEqual({ bonjour: 'Hi', vieux: 'Old text' });
+  });
+
+  it('--prune retire la clé orpheline du catalogue source et de chaque locale cible', async () => {
+    const dir = await makeProject({
+      'app/page.tsx': 'export default function P(){ return <h1>Bonjour</h1>; }',
+      'messages/fr.json': JSON.stringify({ bonjour: 'Bonjour', vieux: 'Texte disparu' }),
+      'messages/en.json': JSON.stringify({ bonjour: 'Hi', vieux: 'Old text' }),
+    });
+
+    const report = await runSync({ projectRoot: dir, ...base, prune: true });
+
+    expect(report.orphanedKeys).toEqual([]);
+    expect(report.prunedKeys).toEqual(['vieux']);
+    expect(await readJson(dir, 'messages/fr.json')).toEqual({ bonjour: 'Bonjour' });
+    expect(await readJson(dir, 'messages/en.json')).toEqual({ bonjour: 'Hi' });
+  });
+
   it('signale les strings module-scope comme à revoir', async () => {
     const dir = await makeProject({
       'lib/data.ts': "export const items = ['Accueil', 'Contact'];",
