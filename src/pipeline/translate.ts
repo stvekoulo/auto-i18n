@@ -14,6 +14,7 @@ import {
   type TranslationErrorKind,
 } from '../adapters/translation/index.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
+import { assertTranslations } from '../adapters/translation/types.js';
 
 /**
  * Locales traduites simultanément. Chaque locale est un aller-retour réseau
@@ -44,13 +45,14 @@ export interface TranslateCatalogsInput {
   maxRetries?: number;
   /** Locales traduites en parallèle (défaut 4). */
   concurrency?: number;
+  dryRun?: boolean;
 }
 
 export interface LocaleTranslation {
   locale: string;
   catalog: Catalog;
   translated: number;
-  status: 'updated' | 'up_to_date' | 'failed';
+  status: 'updated' | 'up_to_date' | 'failed' | 'pending';
   error?: { message: string; kind: TranslationErrorKind | 'placeholder' };
 }
 
@@ -134,6 +136,7 @@ async function translateOneLocale(
       locale,
       maxRetries,
     );
+    assertTranslations(translations, keys.length, provider.name);
 
     const fresh: Catalog = {};
     const badKeys: string[] = [];
@@ -209,13 +212,13 @@ export async function translateCatalogs(
   );
 
   // Rien à traduire : on ne résout pas le provider, donc aucune clé API requise.
-  if (pending.length === 0) {
+  if (pending.length === 0 || input.dryRun) {
     return {
       byLocale: targetLocales.map(locale => ({
         locale,
         catalog: mergeTranslations(sourceCatalog, existingTargets[locale] ?? {}, {}),
         translated: 0,
-        status: 'up_to_date' as const,
+        status: pending.includes(locale) ? ('pending' as const) : ('up_to_date' as const),
       })),
       totalTranslated: 0,
       failed: [],
@@ -239,6 +242,6 @@ export async function translateCatalogs(
   return {
     byLocale,
     totalTranslated: byLocale.reduce((sum, r) => sum + r.translated, 0),
-    failed: byLocale.filter(r => r.status === 'failed').map(r => r.locale),
+    failed: byLocale.filter(r => r.error !== undefined).map(r => r.locale),
   };
 }

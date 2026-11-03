@@ -26,6 +26,9 @@ export function renderSyncReport(projectRoot: string, report: SyncReport): void 
 
   for (const result of report.translation.byLocale) {
     switch (result.status) {
+      case 'pending':
+        logger.dim(`${result.locale} — traductions à effectuer (aperçu, aucun appel API)`);
+        break;
       case 'updated':
         logger.success(
           `${result.locale} — ${result.translated} string${result.translated > 1 ? 's' : ''} traduite${result.translated > 1 ? 's' : ''}`,
@@ -45,12 +48,16 @@ export function renderSyncReport(projectRoot: string, report: SyncReport): void 
 
   if (report.prunedKeys.length > 0) {
     logger.dim(
-      `${report.prunedKeys.length} clé${report.prunedKeys.length > 1 ? 's' : ''} orpheline${report.prunedKeys.length > 1 ? 's' : ''} retirée${report.prunedKeys.length > 1 ? 's' : ''} (--prune) : ${report.prunedKeys.join(', ')}`,
+      `${report.prunedKeys.length} clé${report.prunedKeys.length > 1 ? 's' : ''} orpheline${report.prunedKeys.length > 1 ? 's' : ''} ${report.dryRun ? 'à retirer' : `retirée${report.prunedKeys.length > 1 ? 's' : ''}`} (--prune) : ${report.prunedKeys.join(', ')}`,
     );
   } else if (report.orphanedKeys.length > 0) {
     logger.warn(
       `${report.orphanedKeys.length} clé${report.orphanedKeys.length > 1 ? 's' : ''} orpheline${report.orphanedKeys.length > 1 ? 's' : ''} (texte disparu du code) — lancez "sync --prune" pour les retirer`,
     );
+  }
+
+  if (report.pruneBlockedByDynamicKeys) {
+    logger.warn('Clés de traduction dynamiques détectées : purge désactivée par prudence.');
   }
 
   if (report.detected.review > 0) {
@@ -75,6 +82,10 @@ export function renderSyncReport(projectRoot: string, report: SyncReport): void 
   logger.blank();
   if (report.translation.failed.length > 0) {
     logger.warn(`Synchronisation partielle — échec : ${report.translation.failed.join(', ')}`);
+  } else if (report.parseErrors.length > 0) {
+    logger.warn('Synchronisation partielle — scan incomplet');
+  } else if (report.dryRun || report.translation.byLocale.some(r => r.status === 'pending')) {
+    logger.info('Aperçu terminé — aucune écriture ni traduction effectuée');
   } else {
     logger.success('Synchronisation terminée');
   }

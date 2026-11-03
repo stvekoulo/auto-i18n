@@ -1,5 +1,40 @@
 # Changelog
 
+## [2.2.0] - 2026-11-03
+
+### Added
+
+- Câblage `sync --write` et guide spécifiques à React/Vite avec `useTranslation()`.
+- Validation ICU avec FormatJS : pluriels, sélections, types d'arguments et balises ; protection de la grammaire pendant la traduction des branches.
+- Commande `languages --provider deepl|google [--source] [--json]` pour consulter les langues acceptées.
+- Lots bornés par taille UTF-8 après protection XML/HTML (DeepL 128 Kio, Google Basic 100 000 octets) et normalisation des locales source régionales DeepL.
+- Verrou inter-processus sur `init` et `sync`, conservé pendant le câblage ; suppression du verrou à la sortie normale ou après erreur.
+- Contrôle des références dans les autres dossiers applicatifs avant purge, et correction du glob `**/` pour les fichiers de premier niveau.
+- Applications de validation réelles Next.js 16.4.5 / next-intl 4.14.9 et Vite 8.3.5 / react-i18next 17.1.12, avec React 19.3.1 : installation du tarball, build et rendu traduit.
+- CI de compatibilité sur Ubuntu/Windows, contrôle hebdomadaire des versions `latest` et mises à jour Dependabot.
+- Assemblage de release isolé avec ts-morph et ses dépendances corrigées embarqués ; la version minimatch réellement chargée est vérifiée chez les consommateurs.
+
+### Fixed
+
+- Préservation des clés déjà câblées lors de `sync --prune`, refus d'une purge après erreur de scan, et conservation prudente des clés dynamiques.
+- Erreurs de parcours des dossiers remontées au lieu d'être traitées comme un scan vide.
+- Véritable `sync --dry-run` : aucune écriture de catalogue, sauvegarde ou requête de traduction ; le diff de `--write` reste disponible.
+- Codes de sortie non nuls pour les erreurs de scan et les échecs partiels de placeholders, sans perdre les traductions valides.
+- Validation de tous les catalogues avant modification de la source ; erreurs de lecture remontées, noms temporaires uniques et nettoyage après échec de renommage.
+- Validation des options d'initialisation avant écriture et refus de réinitialiser une configuration existante.
+- Variable d'environnement dérivée du provider Google lorsque `apiKeyEnv` est omis ; détection des collisions de locales sans tenir compte de la casse.
+- Clés `constructor` et autres propriétés héritées traitées comme de vraies clés de catalogue.
+- Codemod conservateur face aux paramètres et masquages de `t`, namespaces et imports ambigus ; échappement des clés manuelles et choix du composant hôte le plus proche.
+- Extraction des alias et méthodes de traduction corrigée ; templates tagués exclus.
+- Scaffold React valide pour les locales régionales et mots réservés ; interpolation simple `{name}` alignée sur les catalogues générés.
+- Réponses des providers et providers personnalisés validées : nombre exact de traductions, types et valeurs non vides.
+
+### Changed
+
+- Node.js minimum aligné sur **22.13** ; CI prévue sur Ubuntu et Windows, Node 22.13 et 24.
+- Dépendances actualisées dans leurs versions majeures existantes ; minimatch 11.0.4 dans le dépôt et dans l'artefact de release. `npm run release:pack` produit le tarball à publier ; la publication directe du checkout est bloquée pour éviter un paquet sans dépendances corrigées embarquées.
+- Tests de régression, rapport d'audit et instructions de migration ajoutés.
+
 ## [2.1.0] - 2026-09-05
 
 ### Added

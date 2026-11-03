@@ -9,9 +9,11 @@
 
 import type { IgnoredString } from '../../core/scan/index.js';
 import type { ExtractedString, Runtime } from '../../core/types.js';
+import type { CatalogReferences } from '../../core/scan/references.js';
 
 /** Résultat du scan d'un fichier, sérialisable tel quel. */
 export interface FileScanOutcome {
+  references: CatalogReferences;
   file: string;
   strings: ExtractedString[];
   ignored: IgnoredString[];

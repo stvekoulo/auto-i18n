@@ -68,7 +68,7 @@ describe('commands/sync — runSyncCommand --write', () => {
     expect(content).toContain('useTranslations');
   });
 
-  it("désactive --write sur un projet détecté react-i18next (pas d'import next-intl injecté)", async () => {
+  it("câble react-i18next sans injecter d'import next-intl", async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.stubGlobal('fetch', fakeDeepLFetch());
     const dir = await makeProject({
@@ -81,8 +81,9 @@ describe('commands/sync — runSyncCommand --write', () => {
 
     const { writeReport } = await runSyncCommand({ projectRoot: dir, write: true });
 
-    expect(writeReport).toBeUndefined();
+    expect(writeReport?.stringsWritten).toBe(1);
     const content = await readFile(join(dir, 'src', 'main.tsx'), 'utf-8');
     expect(content).not.toContain('next-intl');
+    expect(content).toContain('useTranslation');
   });
 });

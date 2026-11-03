@@ -6,17 +6,24 @@
  */
 
 import { resolve, relative, dirname } from 'path';
-import { buildConfig, saveConfig } from '../config/index.js';
+import {
+  buildConfig,
+  saveConfig,
+  validateConfig,
+  ConfigInvalidError,
+  CONFIG_FILENAME,
+} from '../config/index.js';
 import { saveApiKeyToEnv, ensureGitignore } from '../utils/env.js';
 import { detectProject } from '../adapters/project/index.js';
 import { scaffoldProject, type ScaffoldTargetResult } from '../adapters/scaffold/index.js';
-import { writeText, ensureDir } from '../adapters/fs/index.js';
+import { writeText, ensureDir, fileExists } from '../adapters/fs/index.js';
 import { createProvider, type TranslationProvider } from '../adapters/translation/index.js';
 import { runSync, type SyncReport } from '../pipeline/sync.js';
 import { buildGuideModel, buildGuide } from '../core/guide/index.js';
 import { renderScaffold } from '../reporting/init.js';
 import { renderSyncReport } from '../reporting/sync.js';
 import { logger } from '../utils/logger.js';
+import { withProjectLock } from '../adapters/fs/lock.js';
 
 export interface RunInitOptions {
   projectRoot: string;
@@ -43,9 +50,20 @@ function formatDate(): string {
 }
 
 export async function runInit(options: RunInitOptions): Promise<RunInitResult> {
+  return withProjectLock(options.projectRoot, () => initLocked(options));
+}
+
+async function initLocked(options: RunInitOptions): Promise<RunInitResult> {
   const { projectRoot, sourceLocale, targetLocales, apiKey } = options;
+  if (await fileExists(resolve(projectRoot, CONFIG_FILENAME))) {
+    throw new Error('Une configuration existe déjà. Utilisez "sync" pour mettre à jour le projet.');
+  }
 
   const config = buildConfig(sourceLocale, targetLocales, options.providerName);
+  const problems = validateConfig(config);
+  if (problems.length > 0)
+    throw new ConfigInvalidError(resolve(projectRoot, CONFIG_FILENAME), problems);
+  const provider = options.provider ?? createProvider(config.provider, apiKey);
 
   await ensureGitignore(projectRoot, ['.env.local', '*.backup*']);
   await saveApiKeyToEnv(projectRoot, config.apiKeyEnv, apiKey);
@@ -68,7 +86,6 @@ export async function runInit(options: RunInitOptions): Promise<RunInitResult> {
   renderScaffold(projectRoot, scaffold);
 
   logger.step('Catalogues et traduction');
-  const provider = options.provider ?? createProvider(config.provider, apiKey);
   const syncReport = await runSync({
     projectRoot,
     provider,
@@ -82,6 +99,7 @@ export async function runInit(options: RunInitOptions): Promise<RunInitResult> {
 
   logger.step("Guide d'intégration");
   const guideModel = buildGuideModel({
+    framework: project.framework,
     projectRoot,
     sourceLocale,
     targetLocales,
@@ -99,6 +117,6 @@ export async function runInit(options: RunInitOptions): Promise<RunInitResult> {
     scaffold,
     syncReport,
     guidePath,
-    exitCode: syncReport.translation.failed.length > 0 ? 1 : 0,
+    exitCode: syncReport.translation.failed.length > 0 || syncReport.parseErrors.length > 0 ? 1 : 0,
   };
 }

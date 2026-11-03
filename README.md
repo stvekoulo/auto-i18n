@@ -1,183 +1,134 @@
 # next-auto-i18n
 
-![npm version](https://img.shields.io/npm/v/next-auto-i18n)
-![npm downloads](https://img.shields.io/npm/dm/next-auto-i18n)
-![license](https://img.shields.io/npm/l/next-auto-i18n)
+**Passez de vos textes JSX à des catalogues traduits, puis câblez `t()` à votre rythme.**
 
-> CLI d'internationalisation pour Next.js App Router (et, en scaffold basique, React/Vite) : détecte les textes, génère les clés, traduit (DeepL ou Google Translate) et installe l'infrastructure i18n — **sans jamais réécrire votre code applicatif par défaut**.
+[![npm](https://img.shields.io/npm/v/next-auto-i18n?color=0284c7&label=npm)](https://www.npmjs.com/package/next-auto-i18n)
+[![CI](https://github.com/stvekoulo/auto-i18n/actions/workflows/ci.yml/badge.svg)](https://github.com/stvekoulo/auto-i18n/actions/workflows/ci.yml)
+[![Compatibilité](https://github.com/stvekoulo/auto-i18n/actions/workflows/compatibility.yml/badge.svg)](https://github.com/stvekoulo/auto-i18n/actions/workflows/compatibility.yml)
+[![Licence MIT](https://img.shields.io/badge/licence-MIT-a3e635)](./LICENSE)
 
-`next-auto-i18n` scanne votre projet, extrait les chaînes traduisibles, génère des clés stables, remplit et traduit les catalogues `messages/*.json`, et met en place l'infrastructure i18n (fichiers additifs — `next-intl` sur Next.js, `react-i18next` sinon). Plutôt que de muter votre JSX par défaut — source de la plupart des erreurs — il produit un **guide d'intégration précis** qui vous dit, fichier par fichier et ligne par ligne, comment câbler chaque `t()`. Pour les cas non ambigus (composant client, ou composant serveur déjà `async`), `sync --write` peut aussi câbler ces `t()` à votre place, en toute sécurité.
+<p align="center">
+  <img src="https://raw.githubusercontent.com/stvekoulo/auto-i18n/main/assets/readme/workflow.svg" width="100%" alt="next-auto-i18n : Bonjour dans le JSX devient une clé stable et des catalogues français et anglais. Le code est conservé par défaut ; --write active le câblage t().">
+</p>
 
-> **Vous venez de la 1.x ou de la 0.x ?** La `2.0` change le nommage des variables d'interpolation, exige Node 22.12 et refuse une configuration invalide. Voir le [guide de migration](./MIGRATION.md).
+Un CLI pour **Next.js App Router** et **React/Vite** : il extrait les textes, réutilise les clés existantes et traduit uniquement ce qui manque avec DeepL ou Google Translate. `sync` conserve vos composants ; `sync --write` peut ensuite câbler les cas sûrs avec sauvegarde.
 
-## Philosophie
+```tsx
+// Texte détecté dans votre composant
+<h1>Bonjour</h1>
 
-- **Zéro mutation du code source par défaut.** L'outil ne touche pas à vos composants tant que vous ne le demandez pas explicitement. Il détecte, catalogue, traduit, et explique.
-- **Câblage automatique opt-in, jamais aveugle.** `sync --write` ne câble que les cas prouvables sans ambiguïté (voir [Câblage automatique](#câblage-automatique-sync---write)) ; tout le reste va dans le guide.
-- **Fichiers additifs uniquement.** L'infra `next-intl` n'est créée que si elle est absente ; rien n'est écrasé.
-- **Déterministe et idempotent.** Mêmes entrées → mêmes clés. Les exécutions répétées sont sûres.
-- **Optimisé sur mesure, pas au jugé.** Le scan bascule sur un pool de workers au-delà de 3 500 fichiers, seuil issu du banc d'essai ; en dessous, le thread principal reste plus rapide et le pool ne démarre pas.
-- **Conservateur sur l'ambigu.** Les strings hors composant ou au JSX sensible sont signalées « à revoir », pas forcées.
+// Câblage proposé par le guide, ou appliqué avec --write
+<h1>{t("bonjour")}</h1>
+```
 
-## Installation
+```text
+messages/fr.json                    messages/en.json
+{ "bonjour": "Bonjour" }            { "bonjour": "Hello" }
+```
+
+## Premier essai
+
+Node.js **22.13 minimum**. Lancez les commandes à la racine de votre application.
 
 ```bash
 # Next.js App Router
 npm install -D next-auto-i18n
 npm install next-intl
 
-# React / Vite (sans Next.js)
-npm install -D next-auto-i18n
-npm install i18next react-i18next
+npx next-auto-i18n init --source fr --locale en,es
 ```
 
-## Prérequis
+Pour React/Vite, installez `i18next react-i18next` à la place de `next-intl`.
 
-- Node.js `>= 22.12`
-- Un projet Next.js App Router (`next-intl`) **ou** un projet React/Vite (`react-i18next`)
-- Une clé API DeepL ([gratuite ici](https://www.deepl.com/pro-api)) ou Google Translate ([voir la doc](https://cloud.google.com/translate/docs/setup))
+`init` demande la clé API, crée la configuration et l’infrastructure manquante, remplit les catalogues puis écrit **`i18n-guide.md`**. La clé est stockée dans `.env.local`, ajouté à `.gitignore`. Une configuration déjà présente est préservée : utilisez ensuite `sync`.
 
-## Démarrage rapide
+Sur Next.js, suivez le guide pour le layout de locale et `NextIntlClientProvider`. Sur React/Vite, le scaffold initialise i18next et importe sa configuration dans le point d’entrée reconnu.
 
-```bash
-npx next-auto-i18n init
-```
+## La boucle du quotidien
 
-`init` vous demande la langue source, les langues cibles, le provider de traduction (DeepL ou Google Translate) et la clé API correspondante, puis :
+| Commande                                        | Résultat                                                                         |
+| ----------------------------------------------- | -------------------------------------------------------------------------------- |
+| `npx next-auto-i18n sync`                       | Ajoute les textes nouveaux et traduit les clés manquantes.                       |
+| `npx next-auto-i18n sync --dry-run`             | Aperçu des catalogues, sans écriture ni appel de traduction.                     |
+| `npx next-auto-i18n sync --write --dry-run`     | Affiche aussi le diff des composants éligibles.                                  |
+| `npx next-auto-i18n sync --write`               | Câble les cas sûrs avec une sauvegarde par fichier.                              |
+| `npx next-auto-i18n sync --prune --dry-run`     | Prévisualise la suppression des clés devenues inutiles.                          |
+| `npx next-auto-i18n check --json`               | Diagnostic pour la CI ; code de sortie non nul si une correction est nécessaire. |
+| `npx next-auto-i18n languages --provider deepl` | Liste les langues acceptées par le provider.                                     |
 
-1. crée `auto-i18n.config.json` et stocke la clé dans `.env.local`
-2. installe l'infra i18n manquante — sur Next.js : `i18n/routing.ts`, `i18n/request.ts`, middleware, plugin `next.config`, `LanguageSwitcher` ; sinon (React/Vite) : `src/i18n.ts`, import ajouté au point d'entrée, `LanguageSwitcher` (voir [Projets React/Vite](#projets-reactvite-hors-nextjs))
-3. remplit `messages/<source>.json` et traduit les langues cibles
-4. génère `i18n-guide.md` — la marche à suivre pour câbler vos `t()`
+### Ce qui rend les passages répétés sûrs
 
-## Commandes
+- **Clés stables.** Une traduction existante est réutilisée ; les collisions de clés sont désambiguïsées.
+- **Aperçu complet.** `--dry-run` n’écrit aucun catalogue, composant ou backup et ne traduit rien.
+- **Câblage conservateur.** Les paramètres, masquages de `t`, namespaces et imports ambigus restent au guide. Les composants serveur Next.js doivent déjà être `async` ; les hooks React restent synchrones.
+- **Purge prudente.** Les références déjà câblées sont préservées, y compris dans les autres dossiers applicatifs. Les clés dynamiques neutralisent la purge ; une erreur de scan l’arrête.
+- **Écritures protégées.** Un verrou empêche deux opérations simultanées sur le projet. Les catalogues sont remplacés atomiquement, fichier par fichier.
+- **Messages vérifiés.** Les réponses incomplètes, variables perdues et messages ICU invalides font échouer la commande ; les autres traductions valides sont conservées.
 
-### `init`
+## Frameworks et compatibilité
 
-Mise en place complète (une fois).
+| Application        | Infrastructure                                                                       | `--write`                                                        |
+| ------------------ | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| Next.js App Router | next-intl, configuration de requête, routing, switcher et `proxy.ts` sur Next.js 16+ | Composants client et fonctions serveur déjà `async`.             |
+| React / Vite       | i18next + react-i18next, catalogues importés et switcher                             | Composants et hooks synchrones à corps de fonction identifiable. |
 
-```bash
-next-auto-i18n init
-next-auto-i18n init --source fr --locale en,es,de
-next-auto-i18n init --provider google
-next-auto-i18n init --guide docs/i18n.md
-```
+Les versions effectivement compilées et testées sont détaillées dans la [matrice de compatibilité](./COMPATIBILITY.md). La CI vérifie aussi régulièrement les versions publiées les plus récentes.
 
-### `sync`
+Le scaffold ajoute les fichiers manquants. Il ne restructure pas automatiquement les routes Next.js, ne remplace pas un fichier existant et ne devine pas le bon contexte pour chaque texte. Les cas ambigus restent documentés dans le guide.
 
-La commande du quotidien : rescanne, met à jour le catalogue source (merge stable) et traduit uniquement le manquant.
-
-```bash
-next-auto-i18n sync
-```
-
-#### Câblage automatique (`sync --write`)
-
-```bash
-next-auto-i18n sync --write --dry-run   # aperçu (diff), n'écrit rien
-next-auto-i18n sync --write             # câble pour de vrai (avec .backup)
-```
-
-`--write` câble mécaniquement les strings `safe` en `t()`, mais seulement quand c'est prouvable sans ambiguïté :
-
-- **composant client** (`'use client'`) → toujours éligible (`useTranslations()`) ;
-- **composant serveur** → seulement s'il est **déjà `async`** (jamais de conversion sync → async, trop risqué pour les types) ;
-- il faut une **fonction hôte identifiable** (nom en PascalCase, hook `useXxx`, ou export par défaut) ;
-- si un `t` existe déjà dans le scope sans venir de `useTranslations`/`getTranslations`, le fichier est laissé de côté (collision).
-
-Tout ce qui ne remplit pas ces conditions (scope module, fonction hôte ambiguë, composant serveur non-async, corps de fonction concis) reste dans le guide, à câbler à la main.
-
-### `check`
-
-Diagnostic **read-only**, pensé pour la CI. Code de sortie ≠ 0 si du travail est en attente (strings non cataloguées ou traductions manquantes).
-
-```bash
-next-auto-i18n check
-next-auto-i18n check --json
-```
+Les catalogues sont **à plat**. Next.js utilise ICU MessageFormat ; le scaffold React configure l’interpolation simple `{name}`. Les pluriels natifs i18next utilisent leurs propres clés `_one` / `_other` et demandent une adaptation explicite.
 
 ## Configuration
 
-`auto-i18n.config.json` (seuls `sourceLocale` et `targetLocales` sont requis) :
+`auto-i18n.config.json` — seuls `sourceLocale` et `targetLocales` sont requis :
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/stvekoulo/next-auto-i18n/main/schema/auto-i18n.config.schema.json",
+  "$schema": "https://raw.githubusercontent.com/stvekoulo/auto-i18n/main/schema/auto-i18n.config.schema.json",
   "sourceLocale": "fr",
   "targetLocales": ["en", "es"],
   "provider": "deepl",
-  "apiKeyEnv": "AUTO_I18N_DEEPL_KEY",
   "messagesDir": "./messages",
-  "ignore": ["node_modules", ".next", "**/*.test.*", "**/*.spec.*"],
-  "rootDirs": ["app", "src", "components"]
+  "rootDirs": ["app", "src", "components"],
+  "ignore": ["**/*.test.*", "**/*.spec.*"]
 }
 ```
 
-`provider` accepte `"deepl"` ou `"google"` (Google Translate).
+`provider` accepte `deepl` ou `google`. La variable de clé est déduite du provider (`AUTO_I18N_DEEPL_KEY` ou `AUTO_I18N_GOOGLE_KEY`) et peut être personnalisée avec `apiKeyEnv`.
 
-`rootDirs` liste les dossiers de premier niveau à scanner. Sans ce champ, la liste par défaut est utilisée (`app`, `src`, `pages`, `components`, `lib`, `hooks`, `utils`, `ui`, `features`, `shared`) : **renseignez-le si votre code applicatif vit ailleurs**, sinon le scan ne trouvera rien.
+Sans `rootDirs`, le scan cherche dans les dossiers applicatifs usuels. Renseignez ce champ si votre code vit ailleurs. Le schéma active l’autocomplétion dans les éditeurs ; une configuration invalide arrête la commande avec la liste des problèmes.
 
-La configuration est validée au chargement — champ inconnu, code de langue invalide, langue à la fois source et cible, provider inconnu, `messagesDir` sortant du projet : tous les problèmes sont listés d'un coup et la commande s'arrête.
-
-Le champ `$schema` (ajouté automatiquement par `init`) active l'**autocomplétion, la validation et les infobulles dans VSCode** lorsque vous éditez la config.
-
-## Usage programmatique
-
-L'API est aussi utilisable depuis un script (l'import n'exécute pas le CLI) :
+## Dans un script
 
 ```ts
-import { runCheck, runSync } from 'next-auto-i18n';
+import { runCheck, runSyncCommand } from 'next-auto-i18n';
 
-const { report } = await runCheck({ projectRoot: process.cwd() });
-console.log(report.totalMissing, 'traductions manquantes');
+await runSyncCommand({ projectRoot: process.cwd(), dryRun: true });
+const { report, exitCode } = await runCheck({ projectRoot: process.cwd() });
+process.exitCode = exitCode;
 ```
 
-La clé API vit dans `.env.local` :
+L’import de la bibliothèque ne lance pas le CLI. Les pipelines acceptent aussi un provider personnalisé pour les intégrations et les tests.
+
+## Documentation et contribution
+
+- [Documentation complète](./DOCUMENTATION.md) — extraction, providers, API et limites.
+- [Migration](./MIGRATION.md) — adaptations pour une installation existante.
+- [Changelog](./CHANGELOG.md) — changements par version.
+- [Compatibilité](./COMPATIBILITY.md) — versions vérifiées et procédure reproductible.
+- [Sécurité](./SECURITY.md) — signalement et traitement des dépendances.
 
 ```bash
-AUTO_I18N_DEEPL_KEY=votre-cle
-```
-
-## Ce que fait le guide
-
-Pour chaque fichier, le guide indique le runtime (`client`/`server`), le hook à utiliser (`useTranslations` ou `await getTranslations`), et un tableau : ligne, texte détecté, clé générée, remplacement suggéré. Les strings hors composant (niveau module) sont signalées séparément, tout comme les **candidats pluriels probables** (variable de type compteur), avec une suggestion de syntaxe ICU MessageFormat. La mise en place manuelle de `app/[locale]/` est aussi documentée.
-
-> Le guide suppose `next-intl`. Sur un projet React/Vite, adaptez ses suggestions à `react-i18next` : `const { t } = useTranslation();` remplace `useTranslations()`/`getTranslations()`. `sync --write` est désactivé sur ces projets (voir la section suivante).
-
-## Projets React/Vite (hors Next.js)
-
-Si `next-auto-i18n` ne trouve pas de `app/layout.tsx`, il considère le projet comme du React/Vite « nu » et scaffold `react-i18next` à la place de `next-intl` :
-
-- **`src/i18n.ts`** — initialise `i18next` avec `initReactI18next`, en chargeant directement les catalogues `messages/<locale>.json` déjà remplis par `sync` (pas de chargement HTTP paresseux, un `import` par locale).
-- **Point d'entrée** — un `import './i18n';` est ajouté en première ligne de `src/main.tsx` (ou `src/index.tsx`), avec une sauvegarde `.backup`. Si aucun point d'entrée reconnu n'existe, l'action passe en `manual`.
-- **`LanguageSwitcher`** — même composant que côté Next.js dans l'esprit, mais basé sur `i18n.changeLanguage(locale)` plutôt que sur le routing.
-
-Catalogues, traduction, détection de pluriels et `check` fonctionnent à l'identique des deux côtés (c'est le même `core`). Ce qui **ne l'est pas encore** : le guide d'intégration reste écrit pour next-intl — sur React/Vite, câblez `t()` à la main en suivant le tableau du guide (ligne, texte, clé) mais avec `const { t } = useTranslation();`. `sync --write` est **désactivé** sur ces projets (le codemod injecte des imports `next-intl`, ce qui casserait un projet qui ne l'a pas).
-
-## Architecture
-
-```
-src/
-  core/        logique pure (extraction, filtres, clés, catalogue, check, guide, write) — zéro I/O
-  adapters/    I/O : fs, détection projet, scaffold, providers de traduction (DeepL, Google)
-  pipeline/    orchestration (scan, sync, translate, write) combinant core + adapters
-  commands/    init / sync / check
-  reporting/   rendu terminal + JSON
-  cli/         entrée commander
-```
-
-Le core est testable sans système de fichiers ni réseau ; le provider de traduction est abstrait (DeepL, Google Translate, extensible).
-
-## Développement
-
-```bash
-git clone https://github.com/stvekoulo/next-auto-i18n.git
-cd next-auto-i18n
-npm install
+git clone https://github.com/stvekoulo/auto-i18n.git
+cd auto-i18n
+npm ci
 npm run build
-npm test
+npm run test:coverage
+npm run test:compat
 ```
+
+Le projet sépare la logique pure (`core`), les entrées/sorties (`adapters`) et l’orchestration (`pipeline`, `commands`). Les vérifications de compatibilité installent le paquet assemblé dans de vraies applications Next.js et Vite.
 
 ## Licence
 
-MIT — [Steven KOULO](https://github.com/stvekoulo)
+[MIT](./LICENSE) — Steven KOULO.

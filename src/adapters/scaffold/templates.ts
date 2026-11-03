@@ -206,7 +206,7 @@ export interface ReactI18nConfig {
 }
 
 function localeIdentifier(locale: string): string {
-  return locale.replace(/[^a-zA-Z0-9]/g, '_');
+  return `messages_${locale.replace(/[^a-zA-Z0-9]/g, '_')}`;
 }
 
 /** Config d'init react-i18next : charge les catalogues déjà traduits par `sync`. */
@@ -215,7 +215,7 @@ export function reactI18nConfigTemplate(config: ReactI18nConfig): string {
     .map(l => `import ${localeIdentifier(l)} from '${config.messagesRelativePath}/${l}.json';`)
     .join('\n');
   const resources = config.locales
-    .map(l => `    ${l}: { translation: ${localeIdentifier(l)} },`)
+    .map(l => `    '${l}': { translation: ${localeIdentifier(l)} },`)
     .join('\n');
 
   return `import i18next from 'i18next';
@@ -228,7 +228,7 @@ ${resources}
   },
   lng: '${config.defaultLocale}',
   fallbackLng: '${config.defaultLocale}',
-  interpolation: { escapeValue: false },
+  interpolation: { escapeValue: false, prefix: '{', suffix: '}' },
 });
 
 export default i18next;

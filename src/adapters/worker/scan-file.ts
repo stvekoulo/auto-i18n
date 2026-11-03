@@ -8,7 +8,14 @@ import { scanContent } from '../../core/scan/index.js';
 import type { FileScanOutcome } from './protocol.js';
 
 function unreadable(file: string): FileScanOutcome {
-  return { file, strings: [], ignored: [], runtime: null, parseError: true };
+  return {
+    file,
+    strings: [],
+    ignored: [],
+    runtime: null,
+    parseError: true,
+    references: { literals: [], dynamic: true },
+  };
 }
 
 /**
@@ -33,6 +40,7 @@ export async function scanOneFile(file: string, blacklist?: string[]): Promise<F
       ignored: result.ignored,
       runtime: result.runtime,
       parseError: false,
+      references: result.references,
     };
   } catch {
     return unreadable(file);

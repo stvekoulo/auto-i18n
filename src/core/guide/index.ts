@@ -14,9 +14,11 @@ import {
   type Runtime,
   type StringKind,
   type TemplateVariable,
+  type TranslationFramework,
 } from '../types.js';
 
 export interface GuideInput {
+  framework?: TranslationFramework;
   projectRoot: string;
   sourceLocale: string;
   targetLocales: string[];
@@ -56,6 +58,7 @@ export interface PluralCandidate {
 }
 
 export interface GuideModel {
+  framework?: TranslationFramework;
   sourceLocale: string;
   targetLocales: string[];
   date: string;
@@ -66,11 +69,11 @@ export interface GuideModel {
   pluralCandidates: PluralCandidate[];
 }
 
-function suggestReplacement(s: GuideString): string {
+function suggestReplacement(s: GuideString, react = false): string {
   if (s.safety === 'review' && s.reviewReason === 'module_scope') {
     return '⚠ hors composant — voir note';
   }
-  if (s.pluralHint) return '⚠ pluriel probable — voir section ICU';
+  if (s.pluralHint && !react) return '⚠ pluriel probable — voir section ICU';
   if (s.kind === 'template' && s.variables && s.variables.length > 0) {
     return `t("${s.key}", { ${formatTranslationArgs(s.variables)} })`;
   }
@@ -122,7 +125,8 @@ export function buildGuideModel(input: GuideInput): GuideModel {
 
     files.push({
       relPath,
-      runtime: input.fileRuntimes.get(file) ?? 'server',
+      runtime:
+        input.framework === 'react-i18next' ? 'client' : (input.fileRuntimes.get(file) ?? 'server'),
       strings,
       hasModuleScope: strings.some(s => s.reviewReason === 'module_scope'),
     });
@@ -132,6 +136,7 @@ export function buildGuideModel(input: GuideInput): GuideModel {
   pluralCandidates.sort((a, b) => compareCodePoints(a.relPath, b.relPath) || a.line - b.line);
 
   return {
+    framework: input.framework ?? 'next-intl',
     sourceLocale: input.sourceLocale,
     targetLocales: input.targetLocales,
     date: input.date,
@@ -156,6 +161,7 @@ function icuSuggestion(candidate: PluralCandidate): string {
 
 export function buildGuide(model: GuideModel): string {
   const lines: string[] = [];
+  const react = model.framework === 'react-i18next';
 
   lines.push(`# Guide d'intégration i18n`);
   lines.push('');
@@ -183,39 +189,60 @@ export function buildGuide(model: GuideModel): string {
   // Mode d'emploi
   lines.push('## Comment câbler une string');
   lines.push('');
-  lines.push('**Composant serveur** (par défaut) :');
-  lines.push('```tsx');
-  lines.push("import { getTranslations } from 'next-intl/server';");
-  lines.push('');
-  lines.push('export default async function Page() {');
-  lines.push('  const t = await getTranslations();');
-  lines.push('  return <h1>{t("ma_cle")}</h1>;');
-  lines.push('}');
-  lines.push('```');
-  lines.push('');
-  lines.push("**Composant client** (`'use client'`) :");
-  lines.push('```tsx');
-  lines.push("import { useTranslations } from 'next-intl';");
-  lines.push('');
-  lines.push('export function Widget() {');
-  lines.push('  const t = useTranslations();');
-  lines.push('  return <span>{t("ma_cle")}</span>;');
-  lines.push('}');
-  lines.push('```');
-  lines.push('');
+  if (!react) {
+    lines.push('**Composant serveur** (par défaut) :');
+    lines.push('```tsx');
+    lines.push("import { getTranslations } from 'next-intl/server';");
+    lines.push('');
+    lines.push('export default async function Page() {');
+    lines.push('  const t = await getTranslations();');
+    lines.push('  return <h1>{t("ma_cle")}</h1>;');
+    lines.push('}');
+    lines.push('```');
+    lines.push('');
+  }
+  if (react) {
+    lines.push(
+      '**Composant React / Vite** :',
+      '```tsx',
+      "import { useTranslation } from 'react-i18next';",
+      '',
+      'export function App() {',
+      '  const { t } = useTranslation();',
+      '  return <h1>{t("ma_cle")}</h1>;',
+      '}',
+      '```',
+      '',
+    );
+  } else {
+    lines.push("**Composant client** (`'use client'`) :");
+    lines.push('```tsx');
+    lines.push("import { useTranslations } from 'next-intl';");
+    lines.push('');
+    lines.push('export function Widget() {');
+    lines.push('  const t = useTranslations();');
+    lines.push('  return <span>{t("ma_cle")}</span>;');
+    lines.push('}');
+    lines.push('```');
+    lines.push('');
+  }
 
   // Par fichier
   lines.push('## Strings par fichier');
   lines.push('');
   for (const file of model.files) {
-    const hook = file.runtime === 'client' ? 'useTranslations()' : 'await getTranslations()';
+    const hook = react
+      ? 'useTranslation()'
+      : file.runtime === 'client'
+        ? 'useTranslations()'
+        : 'await getTranslations()';
     lines.push(`### \`${file.relPath}\` _(${file.runtime} → \`${hook}\`)_`);
     lines.push('');
     lines.push('| Ligne | Texte | Clé | Remplacement |');
     lines.push('|------:|-------|-----|--------------|');
     for (const s of file.strings) {
       lines.push(
-        `| ${s.line} | ${escapeCell(s.value)} | \`${s.key}\` | \`${escapeCell(suggestReplacement(s))}\` |`,
+        `| ${s.line} | ${escapeCell(s.value)} | \`${s.key}\` | \`${escapeCell(suggestReplacement(s, react))}\` |`,
       );
     }
     lines.push('');
@@ -230,7 +257,7 @@ export function buildGuide(model: GuideModel): string {
   }
 
   // Pluriels détectés
-  if (model.pluralCandidates.length > 0) {
+  if (model.pluralCandidates.length > 0 && !react) {
     lines.push('## Pluriels probables');
     lines.push('');
     lines.push(
@@ -250,15 +277,24 @@ export function buildGuide(model: GuideModel): string {
   }
 
   // Setup app/[locale]
-  lines.push('## Mise en place de `app/[locale]/` (manuel)');
-  lines.push('');
-  lines.push(
-    'Cet outil ne restructure pas vos routes automatiquement. Pour activer le routage ' +
-      'par locale, déplacez le contenu de `app/` dans `app/[locale]/` et ajoutez un layout ' +
-      'de locale enveloppant vos pages dans `NextIntlClientProvider`. ' +
-      'Voir la [doc next-intl](https://next-intl.dev/docs/getting-started/app-router).',
-  );
-  lines.push('');
+  if (react) {
+    lines.push(
+      '## Initialisation et pluriels',
+      '',
+      'Le point d’entrée importe `./i18n` avant le rendu. Le scaffold charge les catalogues et configure l’interpolation `{name}`. Pour les pluriels natifs, adaptez les clés `_one` / `_other` de react-i18next ; ne copiez pas une formule ICU dans cette configuration.',
+      '',
+    );
+  } else {
+    lines.push('## Mise en place de `app/[locale]/` (manuel)');
+    lines.push('');
+    lines.push(
+      'Cet outil ne restructure pas vos routes automatiquement. Pour activer le routage ' +
+        'par locale, déplacez le contenu de `app/` dans `app/[locale]/` et ajoutez un layout ' +
+        'de locale enveloppant vos pages dans `NextIntlClientProvider`. ' +
+        'Voir la [doc next-intl](https://next-intl.dev/docs/getting-started/app-router).',
+    );
+    lines.push('');
+  }
 
   return lines.join('\n');
 }

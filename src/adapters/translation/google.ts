@@ -10,13 +10,15 @@ import {
   parseRetryAfter,
   redactSecret,
   truncate,
+  assertTranslations,
   type TranslateParams,
   type TranslationProvider,
 } from './types.js';
+import { translationBatches } from './batches.js';
+import { protectComplexIcu } from './icu.js';
+import { listProviderLanguages } from './languages.js';
 
 const GOOGLE_TRANSLATE_API = 'https://translation.googleapis.com/language/translate/v2';
-
-const BATCH_SIZE = 50;
 
 interface GoogleTranslateResponse {
   data: {
@@ -29,6 +31,10 @@ interface GoogleErrorResponse {
 }
 
 function protectPlaceholders(text: string): string {
+  const escape = (value: string) =>
+    value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const complex = protectComplexIcu(text, escape, value => `<span translate="no">${value}</span>`);
+  if (complex !== null) return complex;
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -38,7 +44,7 @@ function protectPlaceholders(text: string): string {
 
 function restorePlaceholders(text: string): string {
   return text
-    .replace(/<span translate="no">\s*(\{[^}]*\})\s*<\/span>/gi, '$1')
+    .replace(/<span translate="no">([\s\S]*?)<\/span>/gi, '$1')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
@@ -58,24 +64,32 @@ export class GoogleTranslateProvider implements TranslationProvider {
     }
   }
 
+  listLanguages(type: 'source' | 'target' = 'target') {
+    return listProviderLanguages('google', this.apiKey, type);
+  }
+
   async translate(texts: string[], params: TranslateParams): Promise<string[]> {
     if (texts.length === 0) return [];
 
     const results: string[] = [];
-    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-      const batch = texts.slice(i, i + BATCH_SIZE);
+    for (const batch of translationBatches(texts, batch => this.body(batch, params), 100_000)) {
       results.push(...(await this.translateBatch(batch, params)));
     }
     return results;
   }
 
-  private async translateBatch(texts: string[], params: TranslateParams): Promise<string[]> {
+  private body(texts: string[], params: TranslateParams): Record<string, unknown> {
     const body: Record<string, unknown> = {
       q: texts.map(protectPlaceholders),
       target: params.targetLocale.toLowerCase(),
       format: 'html',
     };
     if (params.sourceLocale) body['source'] = params.sourceLocale.toLowerCase();
+    return body;
+  }
+
+  private async translateBatch(texts: string[], params: TranslateParams): Promise<string[]> {
+    const body = this.body(texts, params);
 
     let response: Response;
     try {
@@ -107,7 +121,11 @@ export class GoogleTranslateProvider implements TranslationProvider {
     }
 
     const data = (await response.json()) as GoogleTranslateResponse;
-    return data.data.translations.map(t => restorePlaceholders(t.translatedText));
+    const translated = Array.isArray(data?.data?.translations)
+      ? data.data.translations.map(t => t?.translatedText)
+      : undefined;
+    assertTranslations(translated, texts.length, this.name);
+    return translated.map(restorePlaceholders);
   }
 
   /** Neutralise la clé API avant tout affichage. */

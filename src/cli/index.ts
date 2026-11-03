@@ -16,6 +16,7 @@ import { PROVIDER_API_KEY_ENV } from '../config/index.js';
 import { runInit } from '../commands/init.js';
 import { runSyncCommand } from '../commands/sync.js';
 import { runCheck } from '../commands/check.js';
+import { createProvider } from '../adapters/translation/index.js';
 
 function readVersion(): string {
   try {
@@ -62,7 +63,7 @@ Exemples :
   $ next-auto-i18n check                     Diagnostic (CI) — code de sortie ≠ 0 si travail en attente
   $ next-auto-i18n check --json              Rapport machine pour scripts/CI
 
-Documentation : https://github.com/stvekoulo/next-auto-i18n#readme`,
+Documentation : https://github.com/stvekoulo/auto-i18n#readme`,
 );
 
 program
@@ -120,7 +121,11 @@ program
     'Câble en plus les strings sûres en t() (composants client, ou serveur déjà async)',
     false,
   )
-  .option('--dry-run', 'Avec --write, affiche le diff sans écrire sur disque', false)
+  .option(
+    '--dry-run',
+    'Aperçu sans écriture ni appel API (avec --write : affiche aussi le diff)',
+    false,
+  )
   .option('--prune', 'Retire du catalogue les clés dont le texte a disparu du code', false)
   .action(async (options: { write?: boolean; dryRun?: boolean; prune?: boolean }) => {
     try {
@@ -146,6 +151,31 @@ program
       finish(exitCode);
     } catch (err) {
       fail(err);
+    }
+  });
+
+program
+  .command('languages')
+  .description('Liste les langues acceptées par le provider (aucune traduction)')
+  .option('--provider <name>', 'Provider (deepl, google)', 'deepl')
+  .option('--source', 'Langues source plutôt que cibles', false)
+  .option('--json', 'Sortie JSON', false)
+  .action(async (options: { provider: string; source: boolean; json: boolean }) => {
+    try {
+      loadEnv(process.cwd());
+      const envName = PROVIDER_API_KEY_ENV[options.provider];
+      const key = envName ? getApiKey(envName) : undefined;
+      const provider = createProvider(options.provider, key ?? '');
+      if (!provider.listLanguages)
+        throw new Error('Ce provider ne propose pas la découverte des langues.');
+      const languages = await provider.listLanguages(options.source ? 'source' : 'target');
+      console.log(
+        options.json
+          ? JSON.stringify(languages, null, 2)
+          : languages.map(l => `${l.language}${l.name ? ` — ${l.name}` : ''}`).join('\n'),
+      );
+    } catch (error) {
+      fail(error);
     }
   });
 

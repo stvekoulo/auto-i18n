@@ -112,8 +112,8 @@ describe('adapters/scaffold — scaffoldProject (react-i18next, sans Next.js)', 
     expect(statusOf(results, 'switcher')).toBe('created');
 
     const config = await readFile(join(dir, 'src', 'i18n.ts'), 'utf-8');
-    expect(config).toContain("import fr from '../messages/fr.json'");
-    expect(config).toContain("import en from '../messages/en.json'");
+    expect(config).toContain("import messages_fr from '../messages/fr.json'");
+    expect(config).toContain("import messages_en from '../messages/en.json'");
     expect(config).toContain("lng: 'fr'");
     expect(config).toContain('initReactI18next');
 

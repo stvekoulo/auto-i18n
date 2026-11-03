@@ -38,6 +38,7 @@ export interface TranslateParams {
 }
 
 export interface TranslationProvider {
+  listLanguages?(type?: 'source' | 'target'): Promise<Array<{ language: string; name?: string }>>;
   readonly name: string;
   /**
    * Traduit `texts` vers `targetLocale`. L'ordre de sortie correspond à l'entrée.
@@ -61,5 +62,24 @@ export class TranslationError extends Error {
   ) {
     super(message);
     this.name = 'TranslationError';
+  }
+}
+
+/** Un lot incomplet décalerait les correspondances des lots suivants. */
+export function assertTranslations(
+  texts: unknown,
+  expectedCount: number,
+  provider: string,
+): asserts texts is string[] {
+  if (
+    !Array.isArray(texts) ||
+    texts.length !== expectedCount ||
+    texts.some(text => typeof text !== 'string' || text.trim() === '')
+  ) {
+    throw new TranslationError(
+      `Réponse ${provider} invalide : ${expectedCount} traductions non vides attendues.`,
+      'provider',
+      false,
+    );
   }
 }

@@ -2,7 +2,8 @@
  * Adapter système de fichiers — fonctions I/O feuilles, sans logique métier.
  */
 
-import { readdir, readFile, writeFile, mkdir, copyFile, access, rename } from 'fs/promises';
+import { readdir, readFile, writeFile, mkdir, copyFile, access, rename, unlink } from 'fs/promises';
+import { randomUUID } from 'node:crypto';
 import { constants } from 'fs';
 import { join, extname, relative } from 'path';
 import type { Catalog } from '../../core/types.js';
@@ -13,6 +14,7 @@ const SCANNABLE_EXTENSIONS = new Set(['.tsx', '.jsx', '.ts', '.js', '.mjs']);
 const DEFAULT_IGNORE_DIRS = new Set([
   'node_modules', '.next', '.git', 'dist', 'build', 'out',
   '.turbo', '.cache', 'coverage', '.vercel', 'public',
+  '.tmp', '.auto-i18n.lock', '.agents', '.codex', '.idea', '.vscode',
   'i18n', 'messages',
 ]);
 
@@ -45,6 +47,8 @@ const DEFAULT_ROOT_DIRS = new Set([
 ]);
 
 export interface CollectOptions {
+  /** Référence de sûreté : visiter aussi les dossiers applicatifs non configurés. */
+  allRoots?: boolean;
   ignoreDirs?: string[];
   ignorePatterns?: string[];
   rootDirs?: string[];
@@ -56,9 +60,11 @@ function globToRegex(pattern: string): RegExp {
     // quantificateur « optionnel » de RegExp et `foo?.ts` ne dirait pas ce que
     // l'auteur du pattern croit.
     .replace(/[.+^${}()|[\]\\?]/g, '\\$&')
+    .replace(/\*\*\//g, '{{GLOBSTAR_DIR}}')
     .replace(/\*\*/g, '{{GLOBSTAR}}')
     .replace(/\*/g, '[^/]*')
     .replace(/\{\{GLOBSTAR\}\}/g, '.*')
+    .replace(/\{\{GLOBSTAR_DIR\}\}/g, '(?:.*/)?')
     .replace(/\\\?/g, '[^/]');
   return new RegExp(`^${escaped}$`);
 }
@@ -74,19 +80,16 @@ export async function collectSourceFiles(
   const files: string[] = [];
 
   async function walk(dir: string, depth: number): Promise<void> {
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
+    // Une erreur de parcours ne doit pas devenir un scan vide : une purge
+    // supprimerait alors les traductions de tout un dossier inaccessible.
+    const entries = await readdir(dir, { withFileTypes: true });
 
     for (const entry of entries) {
       if (ignoreDirs.has(entry.name)) continue;
       const fullPath = join(dir, entry.name);
 
       if (entry.isDirectory()) {
-        if (depth === 0 && !allowedRootDirs.has(entry.name)) continue;
+        if (depth === 0 && !options.allRoots && !allowedRootDirs.has(entry.name)) continue;
         await walk(fullPath, depth + 1);
         continue;
       }
@@ -175,8 +178,9 @@ export async function readCatalog(path: string): Promise<Catalog> {
   let raw: string;
   try {
     raw = await readFile(path, 'utf-8');
-  } catch {
-    return {};
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
+    throw error;
   }
 
   // Un BOM en tête ferait échouer JSON.parse ; certains éditeurs en ajoutent un.
@@ -217,7 +221,14 @@ export async function readCatalog(path: string): Promise<Catalog> {
  * même volume est atomique aussi bien sous POSIX que sous Windows/NTFS.
  */
 export async function writeCatalog(path: string, catalog: Catalog): Promise<void> {
-  const tmpPath = `${path}.tmp-${process.pid}`;
-  await writeFile(tmpPath, JSON.stringify(catalog, null, 2) + '\n', 'utf-8');
-  await rename(tmpPath, path);
+  const tmpPath = `${path}.tmp-${process.pid}-${randomUUID()}`;
+  try {
+    await writeFile(tmpPath, JSON.stringify(catalog, null, 2) + '\n', {
+      encoding: 'utf-8',
+      flag: 'wx',
+    });
+    await rename(tmpPath, path);
+  } finally {
+    await unlink(tmpPath).catch(() => undefined);
+  }
 }

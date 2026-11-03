@@ -1,6 +1,8 @@
 node_modules/
 dist/
 coverage/
+.tmp/
+.auto-i18n.lock/
 
 # Sortie générée par le skill graphify (analyse de code)
 graphify-out/

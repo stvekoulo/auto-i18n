@@ -5,6 +5,7 @@
 
 import { compareCodePoints, type Catalog } from '../types.js';
 import { KeyAllocator } from '../keys/index.js';
+import type { CatalogReferences } from '../scan/references.js';
 
 export interface BuiltCatalog {
   /** Catalogue complet (existant + nouvelles clés), trié alphabétiquement. */
@@ -67,12 +68,12 @@ export function buildSourceCatalog(values: string[], existing: Catalog = {}): Bu
 
 /** Clés présentes dans `source` mais absentes de `target`. */
 export function missingKeys(source: Catalog, target: Catalog): string[] {
-  return Object.keys(source).filter(key => !(key in target));
+  return Object.keys(source).filter(key => !Object.hasOwn(target, key));
 }
 
 /** Clés présentes dans `target` mais plus dans `source` (obsolètes). */
 export function staleKeys(source: Catalog, target: Catalog): string[] {
-  return Object.keys(target).filter(key => !(key in source));
+  return Object.keys(target).filter(key => !Object.hasOwn(source, key));
 }
 
 /**
@@ -83,9 +84,20 @@ export function staleKeys(source: Catalog, target: Catalog): string[] {
  * scan incomplet). Une string supprimée du code laisse donc sa clé accumulée
  * indéfiniment dans le catalogue — `check` la signale, `sync --prune` la retire.
  */
-export function orphanKeys(sourceCatalog: Catalog, scannedValues: Iterable<string>): string[] {
+export function orphanKeys(
+  sourceCatalog: Catalog,
+  scannedValues: Iterable<string>,
+  references?: CatalogReferences,
+): string[] {
+  if (references?.dynamic) return [];
   const present = new Set(scannedValues);
-  return Object.keys(sourceCatalog).filter(key => !present.has(sourceCatalog[key]));
+  const mentioned = new Set(references?.literals);
+  return Object.keys(sourceCatalog).filter(
+    key =>
+      !present.has(sourceCatalog[key]) &&
+      !mentioned.has(key) &&
+      !key.split('.').some((_, index, parts) => mentioned.has(parts.slice(index).join('.'))),
+  );
 }
 
 /** Retire `keysToRemove` d'un catalogue (utilisé par `sync --prune`). */
@@ -99,20 +111,7 @@ export function pruneCatalog(catalog: Catalog, keysToRemove: readonly string[]):
   return pruned;
 }
 
-const PLACEHOLDER_RE = /\{([^}]+)\}/g;
-
-/** Ensemble trié des placeholders `{var}` présents dans un texte. */
-export function extractPlaceholders(text: string): string[] {
-  const matches = text.match(PLACEHOLDER_RE) ?? [];
-  return [...new Set(matches)].sort();
-}
-
-/** Vrai si `source` et `translated` partagent exactement les mêmes placeholders. */
-export function placeholdersMatch(source: string, translated: string): boolean {
-  const a = extractPlaceholders(source);
-  const b = extractPlaceholders(translated);
-  return a.length === b.length && a.every((p, i) => p === b[i]);
-}
+export { extractPlaceholders, placeholdersMatch } from './icu.js';
 
 /** Trie un catalogue cible et garde uniquement les clés présentes en source. */
 export function mergeTranslations(
@@ -124,7 +123,7 @@ export function mergeTranslations(
   // On ne conserve que les clés encore présentes dans la source.
   const pruned: Catalog = {};
   for (const key of Object.keys(source)) {
-    if (key in merged) pruned[key] = merged[key];
+    if (Object.hasOwn(merged, key)) pruned[key] = merged[key];
   }
   return sortCatalog(pruned);
 }

@@ -19,7 +19,7 @@ export const CONFIG_FILENAME = 'auto-i18n.config.json';
  * Yarn PnP ni depuis un paquet hissé à la racine d'un monorepo.
  */
 export const CONFIG_SCHEMA_PATH =
-  'https://raw.githubusercontent.com/stvekoulo/next-auto-i18n/main/schema/auto-i18n.config.schema.json';
+  'https://raw.githubusercontent.com/stvekoulo/auto-i18n/main/schema/auto-i18n.config.schema.json';
 
 /** Providers de traduction reconnus. */
 export const SUPPORTED_PROVIDERS = ['deepl', 'google'] as const;
@@ -111,10 +111,14 @@ export function validateConfig(value: unknown): string[] {
     if (invalid.length > 0) {
       problems.push(`code de langue invalide dans "targetLocales" : ${invalid.join(', ')}.`);
     }
-    if (new Set(targetLocales).size !== targetLocales.length) {
+    const normalizedLocales = targetLocales.map(locale => locale.toLowerCase());
+    if (new Set(normalizedLocales).size !== targetLocales.length) {
       problems.push('"targetLocales" contient des doublons.');
     }
-    if (typeof sourceLocale === 'string' && targetLocales.includes(sourceLocale)) {
+    if (
+      typeof sourceLocale === 'string' &&
+      normalizedLocales.includes(sourceLocale.toLowerCase())
+    ) {
       problems.push(`"${sourceLocale}" est à la fois la langue source et une langue cible.`);
     }
   }
@@ -217,7 +221,12 @@ export async function loadConfig(projectRoot: string): Promise<AutoI18nConfig> {
   const problems = validateConfig(parsed);
   if (problems.length > 0) throw new ConfigInvalidError(configPath, problems);
 
-  return { ...DEFAULTS, ...(parsed as AutoI18nConfig) };
+  const config = parsed as AutoI18nConfig;
+  return {
+    ...DEFAULTS,
+    ...config,
+    apiKeyEnv: config.apiKeyEnv ?? PROVIDER_API_KEY_ENV[config.provider ?? DEFAULTS.provider],
+  };
 }
 
 export async function saveConfig(projectRoot: string, config: AutoI18nConfig): Promise<string> {

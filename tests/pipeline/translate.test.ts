@@ -83,7 +83,7 @@ describe('pipeline/translate — translateCatalogs', () => {
       existingTargets: { fr: {} },
     });
     const fr = result.byLocale[0];
-    expect(result.failed).toEqual([]);
+    expect(result.failed).toEqual(['fr']);
     expect(fr.status).toBe('updated');
     expect(fr.translated).toBe(1);
     expect(fr.catalog).toEqual({ bye: 'FR:Bye' });

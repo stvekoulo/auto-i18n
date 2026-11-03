@@ -9,7 +9,7 @@
 import { readText, writeText, backupFile } from '../adapters/fs/index.js';
 import { parseSource } from '../core/extraction/index.js';
 import { computeWriteEdits, applyEdits, type WriteSkip } from '../core/write/index.js';
-import type { ExtractedString, Runtime } from '../core/types.js';
+import type { ExtractedString, Runtime, TranslationFramework } from '../core/types.js';
 
 export interface RunWriteInput {
   strings: ExtractedString[];
@@ -17,6 +17,7 @@ export interface RunWriteInput {
   keyMap: Map<string, string>;
   fileRuntimes: Map<string, Runtime>;
   dryRun?: boolean;
+  framework?: TranslationFramework;
 }
 
 export interface FileWriteOutcome {
@@ -54,7 +55,7 @@ export async function runWrite(input: RunWriteInput): Promise<WriteReport> {
     }
 
     const sourceFile = parseSource(before, file);
-    const result = computeWriteEdits(sourceFile, file, runtime, keyMap);
+    const result = computeWriteEdits(sourceFile, file, runtime, keyMap, input.framework);
     stringsSkipped += result.skipped.length;
 
     if (result.edits.length === 0) {

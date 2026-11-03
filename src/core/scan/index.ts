@@ -10,6 +10,7 @@ import type { ExtractedString, Runtime } from '../types.js';
 import { extractStrings, detectRuntime } from '../extraction/index.js';
 import { getIgnoreReason, type FilterOptions, type IgnoreReason } from '../filters/index.js';
 import { parseSource, getSyntaxErrors } from '../extraction/parse.js';
+import { collectCatalogReferences, type CatalogReferences } from './references.js';
 
 export interface IgnoredString {
   value: string;
@@ -20,6 +21,7 @@ export interface IgnoredString {
 }
 
 export interface FileScanResult {
+  references: CatalogReferences;
   /** Strings retenues comme traduisibles. */
   strings: ExtractedString[];
   /** Strings écartées par les heuristiques (utile pour le diagnostic). */
@@ -39,7 +41,14 @@ export function scanSourceFile(
   const syntaxErrors = getSyntaxErrors(sourceFile);
   const runtime = detectRuntime(sourceFile);
   // Arbre partiel : l'extraction ressortirait vide ou fausse. On s'arrête ici.
-  if (syntaxErrors.length > 0) return { strings: [], ignored: [], runtime, syntaxErrors };
+  if (syntaxErrors.length > 0)
+    return {
+      strings: [],
+      ignored: [],
+      runtime,
+      syntaxErrors,
+      references: { literals: [], dynamic: true },
+    };
 
   const strings: ExtractedString[] = [];
   const ignored: IgnoredString[] = [];
@@ -59,7 +68,13 @@ export function scanSourceFile(
     }
   }
 
-  return { strings, ignored, runtime, syntaxErrors };
+  return {
+    strings,
+    ignored,
+    runtime,
+    syntaxErrors,
+    references: collectCatalogReferences(sourceFile),
+  };
 }
 
 /** Scanne un contenu source brut (parse + scan). Pratique pour les tests. */

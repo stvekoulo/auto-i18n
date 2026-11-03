@@ -43,7 +43,9 @@ export async function runCheck(options: RunCheckOptions): Promise<RunCheckResult
   );
 
   const report = buildCheckReport({
+    sourceLocale: config.sourceLocale,
     strings: scan.strings,
+    references: scan.references,
     filesScanned: scan.filesScanned,
     parseErrors: scan.parseErrors,
     sourceCatalog,

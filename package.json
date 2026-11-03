@@ -1,7 +1,7 @@
 {
   "name": "next-auto-i18n",
-  "version": "2.1.0",
-  "description": "Internationalisation zéro-mutation pour Next.js App Router : détecte, traduit (DeepL) et installe next-intl sans réécrire votre code.",
+  "version": "2.2.0",
+  "description": "CLI i18n pour Next.js App Router et React/Vite : extraction, traduction DeepL/Google, catalogues et câblage opt-in.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -27,16 +27,22 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "node scripts/guard-publish.mjs",
+    "test:compat": "node scripts/verify-package.mjs",
+    "release:pack": "node scripts/pack-release.mjs",
+    "release:verify": "node scripts/verify-consumer.mjs"
   },
   "files": [
     "dist",
     "schema",
+    "assets/readme",
     "README.md",
     "LICENSE",
     "DOCUMENTATION.md",
     "MIGRATION.md",
     "CHANGELOG.md",
+    "COMPATIBILITY.md",
+    "THIRD_PARTY_NOTICES.md",
     "SECURITY.md"
   ],
   "keywords": [
@@ -57,18 +63,19 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/stvekoulo/next-auto-i18n.git"
+    "url": "git+https://github.com/stvekoulo/auto-i18n.git"
   },
-  "homepage": "https://github.com/stvekoulo/next-auto-i18n#readme",
+  "homepage": "https://github.com/stvekoulo/auto-i18n#readme",
   "bugs": {
-    "url": "https://github.com/stvekoulo/next-auto-i18n/issues"
+    "url": "https://github.com/stvekoulo/auto-i18n/issues"
   },
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.13.0"
   },
   "dependencies": {
-    "@inquirer/prompts": "^8.7.1",
-    "chalk": "^6.0.0",
+    "@formatjs/icu-messageformat-parser": "^3.5.22",
+    "@inquirer/prompts": "^8.7.5",
+    "chalk": "^6.0.1",
     "commander": "^15.0.0",
     "diff": "^9.0.0",
     "dotenv": "^17.4.2",
@@ -92,18 +99,21 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^26.4.1",
-    "@types/react": "^19.2.18",
-    "@vitest/coverage-v8": "^5.0.0",
-    "eslint": "^10.10.0",
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@vitest/coverage-v8": "^5.1.0",
+    "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",
-    "prettier": "^3.9.6",
-    "tsx": "^4.23.13",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.69.0",
-    "vitest": "^5.0.0"
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.1.0"
   },
   "publishConfig": {
     "access": "public"
+  },
+  "overrides": {
+    "minimatch": "^11.0.4"
   }
 }

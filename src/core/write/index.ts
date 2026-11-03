@@ -15,15 +15,20 @@
  * simple découpe de chaîne, appliquée de la fin vers le début.
  */
 
+import { Node, type SourceFile } from 'ts-morph';
 import {
-  Node,
-  type ArrowFunction,
-  type FunctionDeclaration,
-  type FunctionExpression,
-  type SourceFile,
-} from 'ts-morph';
-import { formatTranslationArgs, type ExtractedString, type Runtime } from '../types.js';
+  formatTranslationArgs,
+  type ExtractedString,
+  type Runtime,
+  type TranslationFramework,
+} from '../types.js';
 import { extractStringNodes } from '../extraction/index.js';
+import {
+  hasBindingConflict,
+  findTopLevelTDeclaration,
+  isValidTSource,
+  type HostFn,
+} from './bindings.js';
 
 export interface WriteEdit {
   start: number;
@@ -44,8 +49,6 @@ export interface WriteFileResult {
   written: number;
   skipped: WriteSkip[];
 }
-
-type HostFn = FunctionDeclaration | ArrowFunction | FunctionExpression;
 
 function isFunctionLike(node: Node): node is HostFn {
   return (
@@ -82,64 +85,55 @@ function isEligibleHostName(fn: Node): boolean {
   return /^[A-Z]/.test(name) || /^use[A-Z]/.test(name);
 }
 
-/** Remonte jusqu'à la fonction "hôte" la plus englobante éligible (ou `null`). */
+/** Remonte jusqu'à la fonction hôte éligible la plus proche (ou `null`). */
 function findHostFunction(node: Node): HostFn | null {
   let current = node.getParent();
-  let best: HostFn | null = null;
   while (current) {
     if (isFunctionLike(current) && isEligibleHostName(current)) {
-      best = current;
+      return current;
     }
     current = current.getParent();
   }
-  return best;
-}
-
-function hasParamNamedT(fn: HostFn): boolean {
-  return fn.getParameters().some(p => p.getName() === 't');
-}
-
-const T_SOURCE_RE = /^(await\s+)?(useTranslations|getTranslations)\s*\(/;
-
-function findTopLevelTDeclaration(fn: HostFn): Node | undefined {
-  const body = fn.getBody();
-  if (!body || !Node.isBlock(body)) return undefined;
-  for (const stmt of body.getStatements()) {
-    if (!Node.isVariableStatement(stmt)) continue;
-    for (const decl of stmt.getDeclarationList().getDeclarations()) {
-      if (decl.getName() === 't') return decl;
-    }
-  }
-  return undefined;
-}
-
-function isValidTSource(decl: Node): boolean {
-  if (!Node.isVariableDeclaration(decl)) return false;
-  const init = decl.getInitializer();
-  return init ? T_SOURCE_RE.test(init.getText()) : false;
+  return null;
 }
 
 interface HostEligibility {
   eligible: boolean;
   reason?: WriteSkipReason;
-  inject?: { kind: 'client' | 'server_async' };
+  inject?: { kind: WriteKind };
 }
+type WriteKind = 'client' | 'server_async' | 'react';
 
-function evaluateHost(fn: HostFn | null, runtime: Runtime): HostEligibility {
+function evaluateHost(
+  fn: HostFn | null,
+  runtime: Runtime,
+  framework: TranslationFramework,
+): HostEligibility {
   if (!fn) return { eligible: false, reason: 'no_host' };
 
   const body = fn.getBody();
   if (!body || !Node.isBlock(body)) return { eligible: false, reason: 'concise_body' };
 
-  if (hasParamNamedT(fn)) return { eligible: true };
+  const hook =
+    framework === 'react-i18next'
+      ? 'useTranslation'
+      : runtime === 'client'
+        ? 'useTranslations'
+        : 'getTranslations';
+  if (hasBindingConflict(fn, fn.getSourceFile(), hook))
+    return { eligible: false, reason: 't_conflict' };
 
   const existing = findTopLevelTDeclaration(fn);
   if (existing) {
-    return isValidTSource(existing)
+    return isValidTSource(existing, framework)
       ? { eligible: true }
       : { eligible: false, reason: 't_conflict' };
   }
 
+  if (framework === 'react-i18next')
+    return fn.isAsync()
+      ? { eligible: false, reason: 'no_host' }
+      : { eligible: true, inject: { kind: 'react' } };
   if (runtime === 'client') return { eligible: true, inject: { kind: 'client' } };
 
   if (!fn.isAsync()) return { eligible: false, reason: 'server_not_async' };
@@ -147,16 +141,17 @@ function evaluateHost(fn: HostFn | null, runtime: Runtime): HostEligibility {
 }
 
 function buildReplacement(info: ExtractedString, key: string, node: Node): string {
+  const literalKey = JSON.stringify(key);
   if (info.kind === 'template' && info.variables && info.variables.length > 0) {
-    return `t("${key}", { ${formatTranslationArgs(info.variables)} })`;
+    return `t(${literalKey}, { ${formatTranslationArgs(info.variables)} })`;
   }
   if (info.kind === 'jsx-attribute') {
-    const call = `t("${key}")`;
+    const call = `t(${literalKey})`;
     const parent = node.getParent();
     return parent && Node.isJsxExpression(parent) ? call : `{${call}}`;
   }
-  if (info.kind === 'jsx-text') return `{t("${key}")}`;
-  return `t("${key}")`;
+  if (info.kind === 'jsx-text') return `{t(${literalKey})}`;
+  return `t(${literalKey})`;
 }
 
 function buildStringEdit(info: ExtractedString, node: Node, key: string): WriteEdit {
@@ -164,7 +159,7 @@ function buildStringEdit(info: ExtractedString, node: Node, key: string): WriteE
     const rawText = node.getText();
     const offset = rawText.indexOf(info.value);
     const start = node.getStart() + Math.max(offset, 0);
-    return { start, end: start + info.value.length, replacement: `{t("${key}")}` };
+    return { start, end: start + info.value.length, replacement: `{t(${JSON.stringify(key)})}` };
   }
   return {
     start: node.getStart(),
@@ -173,9 +168,13 @@ function buildStringEdit(info: ExtractedString, node: Node, key: string): WriteE
   };
 }
 
-function buildInjectionEdit(host: HostFn, kind: 'client' | 'server_async'): WriteEdit {
+function buildInjectionEdit(host: HostFn, kind: WriteKind): WriteEdit {
   const stmt =
-    kind === 'client' ? 'const t = useTranslations();' : 'const t = await getTranslations();';
+    kind === 'react'
+      ? 'const { t } = useTranslation();'
+      : kind === 'client'
+        ? 'const t = useTranslations();'
+        : 'const t = await getTranslations();';
   const body = host.getBody();
   if (!body || !Node.isBlock(body)) {
     throw new Error('invariant: host body must be a Block (checked by evaluateHost)');
@@ -195,12 +194,11 @@ function leadingInsertOffset(sourceFile: SourceFile): number {
   return 0;
 }
 
-function buildImportEdit(
-  sourceFile: SourceFile,
-  kind: 'client' | 'server_async',
-): WriteEdit | null {
-  const moduleSpecifier = kind === 'client' ? 'next-intl' : 'next-intl/server';
-  const importName = kind === 'client' ? 'useTranslations' : 'getTranslations';
+function buildImportEdit(sourceFile: SourceFile, kind: WriteKind): WriteEdit | null {
+  const moduleSpecifier =
+    kind === 'react' ? 'react-i18next' : kind === 'client' ? 'next-intl' : 'next-intl/server';
+  const importName =
+    kind === 'react' ? 'useTranslation' : kind === 'client' ? 'useTranslations' : 'getTranslations';
 
   const existing = sourceFile
     .getImportDeclarations()
@@ -237,13 +235,15 @@ export function computeWriteEdits(
   file: string,
   runtime: Runtime,
   keyMap: Map<string, string>,
+  framework: TranslationFramework = 'next-intl',
 ): WriteFileResult {
   const safeNodes = extractStringNodes(sourceFile, file).filter(x => x.info.safety === 'safe');
 
   const edits: WriteEdit[] = [];
   const skipped: WriteSkip[] = [];
   const injectedHosts = new Set<HostFn>();
-  let importKind: 'client' | 'server_async' | null = null;
+  const hostEligibility = new Map<HostFn | null, HostEligibility>();
+  let importKind: WriteKind | null = null;
   let written = 0;
 
   for (const { info, node } of safeNodes) {
@@ -251,7 +251,11 @@ export function computeWriteEdits(
     if (!key) continue;
 
     const host = findHostFunction(node);
-    const eligibility = evaluateHost(host, runtime);
+    let eligibility = hostEligibility.get(host);
+    if (!eligibility) {
+      eligibility = evaluateHost(host, runtime, framework);
+      hostEligibility.set(host, eligibility);
+    }
     if (!eligibility.eligible || !host) {
       skipped.push({ value: info.value, line: info.line, reason: eligibility.reason ?? 'no_host' });
       continue;

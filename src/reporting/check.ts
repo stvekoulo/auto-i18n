@@ -13,6 +13,9 @@ export function renderCheckJson(report: CheckReport): void {
 }
 
 export function renderCheckReport(projectRoot: string, report: CheckReport): void {
+  for (const [locale, keys] of Object.entries(report.invalidByLocale ?? {})) {
+    logger.warn(`${locale} — messages ICU ou variables invalides : ${keys.join(', ')}`);
+  }
   logger.info(
     `${report.filesScanned} fichier${report.filesScanned > 1 ? 's' : ''} scanné${report.filesScanned > 1 ? 's' : ''}`,
   );

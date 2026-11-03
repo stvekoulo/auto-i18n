@@ -3,9 +3,8 @@
  *
  * Par défaut, ne modifie jamais le code source (modèle zéro-mutation). Avec
  * `write: true`, câble en plus mécaniquement les strings `safe` en `t()` —
- * voir `pipeline/write.ts` pour les garanties de sûreté. Le codemod injecte
- * des imports `next-intl` : il est désactivé sur un projet détecté react-i18next
- * pour ne jamais injecter un import qui n'existe pas dans ce projet.
+ * voir `pipeline/write.ts` pour les garanties de sûreté. Le framework détecté
+ * détermine les imports next-intl ou react-i18next injectés.
  */
 
 import { loadConfig } from '../config/index.js';
@@ -16,7 +15,7 @@ import { runSync, type SyncReport } from '../pipeline/sync.js';
 import { runWrite, type WriteReport } from '../pipeline/write.js';
 import { renderSyncReport } from '../reporting/sync.js';
 import { renderWriteReport } from '../reporting/write.js';
-import { logger } from '../utils/logger.js';
+import { withProjectLock } from '../adapters/fs/lock.js';
 
 export interface RunSyncCommandOptions {
   projectRoot: string;
@@ -37,6 +36,10 @@ export interface RunSyncCommandResult {
 export async function runSyncCommand(
   options: RunSyncCommandOptions,
 ): Promise<RunSyncCommandResult> {
+  return withProjectLock(options.projectRoot, () => syncLocked(options), options.dryRun);
+}
+
+async function syncLocked(options: RunSyncCommandOptions): Promise<RunSyncCommandResult> {
   const { projectRoot, write = false, dryRun = false, prune = false } = options;
   const config = await loadConfig(projectRoot);
 
@@ -63,6 +66,7 @@ export async function runSyncCommand(
     ignore: config.ignore,
     rootDirs: config.rootDirs,
     prune,
+    dryRun,
   });
 
   renderSyncReport(projectRoot, report);
@@ -70,20 +74,19 @@ export async function runSyncCommand(
   let writeReport: WriteReport | undefined;
   if (write) {
     const project = await detectProject(projectRoot);
-    if (project.framework === 'react-i18next') {
-      logger.warn(
-        '--write désactivé : projet react-i18next détecté (le codemod ne câble que next-intl pour le moment) — voir le guide.',
-      );
-    } else {
-      writeReport = await runWrite({
-        strings: report.strings,
-        keyMap: report.keyMap,
-        fileRuntimes: report.fileRuntimes,
-        dryRun,
-      });
-      renderWriteReport(projectRoot, writeReport);
-    }
+    writeReport = await runWrite({
+      strings: report.strings,
+      keyMap: report.keyMap,
+      fileRuntimes: report.fileRuntimes,
+      dryRun,
+      framework: project.framework,
+    });
+    renderWriteReport(projectRoot, writeReport);
   }
 
-  return { report, writeReport, exitCode: report.translation.failed.length > 0 ? 1 : 0 };
+  return {
+    report,
+    writeReport,
+    exitCode: report.translation.failed.length > 0 || report.parseErrors.length > 0 ? 1 : 0,
+  };
 }

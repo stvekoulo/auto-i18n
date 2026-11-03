@@ -21,6 +21,7 @@ import type {
   StringKind,
   TemplateVariable,
 } from '../types.js';
+import { isTranslationCall, translationBindings } from '../scan/references.js';
 
 export { parseSource, getSyntaxErrors } from './parse.js';
 
@@ -50,7 +51,6 @@ const TECHNICAL_PROPERTY_NAMES = new Set([
 const CSS_UTILITY_CALLEES = /^(cva|cn|clsx|twMerge|classNames|classnames|css|styled|tv)$/;
 const TECHNICAL_CALLEES =
   /^(console\.\w+|require|Error|JSON\.\w+|parseInt|parseFloat|fetch|addEventListener|removeEventListener)$/;
-const T_CALLEES = /^t$|^translate$/;
 /** Variable interpolée qui ressemble à un compteur → forme plurielle probable. */
 const PLURAL_VAR_RE = /count|total|num|qty|quantity|amount|length/i;
 
@@ -128,10 +128,14 @@ function scopeOf(node: Node): Scope {
   return hasEnclosingFunction(node) ? 'component' : 'module';
 }
 
-function isFirstArgOfTCall(node: Node): boolean {
+function isFirstArgOfTCall(node: Node, bindings: ReturnType<typeof translationBindings>): boolean {
   const parent = node.getParent();
   if (!parent || !Node.isCallExpression(parent)) return false;
-  if (!T_CALLEES.test(parent.getExpression().getText())) return false;
+  if (
+    !isTranslationCall(parent, bindings) &&
+    !bindings.factories.has(parent.getExpression().getText())
+  )
+    return false;
   const args = parent.getArguments();
   return args.length > 0 && args[0] === node;
 }
@@ -303,8 +307,9 @@ function collectTemplateExpression(
   node: TemplateExpression,
   file: string,
   out: ExtractedStringNode[],
+  bindings: ReturnType<typeof translationBindings>,
 ): void {
-  if (isFirstArgOfTCall(node) || isInsideNonTranslatableAttribute(node)) return;
+  if (isFirstArgOfTCall(node, bindings) || isInsideNonTranslatableAttribute(node)) return;
 
   const variables = new TemplateVariables();
   let reconstructed = getTemplateText(node.getHead());
@@ -336,20 +341,22 @@ function collectTemplateExpression(
  */
 export function extractStringNodes(sourceFile: SourceFile, file: string): ExtractedStringNode[] {
   const results: ExtractedStringNode[] = [];
+  const bindings = translationBindings(sourceFile);
 
-  sourceFile.forEachDescendant(node => {
+  sourceFile.forEachDescendant((node, traversal) => {
+    if (Node.isTaggedTemplateExpression(node)) return traversal.skip();
     if (Node.isJsxText(node)) {
       collectJsxText(node, file, results);
     } else if (Node.isJsxAttribute(node)) {
       collectJsxAttribute(node, file, results);
     } else if (Node.isNoSubstitutionTemplateLiteral(node)) {
-      if (isFirstArgOfTCall(node) || isInsideNonTranslatableAttribute(node)) return;
+      if (isFirstArgOfTCall(node, bindings) || isInsideNonTranslatableAttribute(node)) return;
       const value = node.getLiteralValue().trim();
       if (value) results.push({ info: makeString({ value, kind: 'template', file }, node), node });
     } else if (Node.isTemplateExpression(node)) {
-      collectTemplateExpression(node, file, results);
+      collectTemplateExpression(node, file, results, bindings);
     } else if (Node.isStringLiteral(node)) {
-      if (isFirstArgOfTCall(node) || isInNonExtractableContext(node)) return;
+      if (isFirstArgOfTCall(node, bindings) || isInNonExtractableContext(node)) return;
       const value = node.getLiteralValue().trim();
       if (value) {
         results.push({ info: makeString({ value, kind: 'string-literal', file }, node), node });

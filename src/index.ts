@@ -7,7 +7,11 @@
 
 // API de haut niveau (commandes)
 export { runInit, type RunInitOptions, type RunInitResult } from './commands/init.js';
-export { runSyncCommand, type RunSyncCommandResult } from './commands/sync.js';
+export {
+  runSyncCommand,
+  type RunSyncCommandOptions,
+  type RunSyncCommandResult,
+} from './commands/sync.js';
 export { runCheck, type RunCheckOptions, type RunCheckResult } from './commands/check.js';
 
 // Configuration
@@ -17,6 +21,8 @@ export {
   buildConfig,
   isValidConfig,
   ConfigNotFoundError,
+  ConfigInvalidError,
+  validateConfig,
   CONFIG_FILENAME,
   CONFIG_SCHEMA_PATH,
   PROVIDER_API_KEY_ENV,
@@ -25,7 +31,7 @@ export {
 
 // Pipelines (orchestration)
 export { scanProject, type ProjectScanResult, type ScanProjectOptions } from './pipeline/scan.js';
-export { runSync, type SyncReport } from './pipeline/sync.js';
+export { runSync, type RunSyncInput, type SyncReport } from './pipeline/sync.js';
 export {
   translateCatalogs,
   type TranslateCatalogsInput,

@@ -27,6 +27,7 @@ export type ReviewReason = 'module_scope' | 'jsx_inline_spacing';
 
 /** Runtime d'un fichier, déterminé par la directive `'use client'`. */
 export type Runtime = 'client' | 'server';
+export type TranslationFramework = 'next-intl' | 'react-i18next';
 
 export interface SourceLocation {
   file: string;

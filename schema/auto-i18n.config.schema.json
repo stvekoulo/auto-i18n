@@ -1,6 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://raw.githubusercontent.com/stvekoulo/next-auto-i18n/main/schema/auto-i18n.config.schema.json",
+  "$id": "https://raw.githubusercontent.com/stvekoulo/auto-i18n/main/schema/auto-i18n.config.schema.json",
   "title": "next-auto-i18n configuration",
   "description": "Configuration de next-auto-i18n. Seuls sourceLocale et targetLocales sont requis ; les autres champs ont des valeurs par défaut.",
   "type": "object",

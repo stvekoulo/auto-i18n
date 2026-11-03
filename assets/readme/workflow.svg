@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-labelledby="title description">
+  <title id="title">next-auto-i18n — Du texte aux traductions</title>
+  <desc id="description">Le CLI extrait Bonjour du JSX, crée une clé stable et traduit les catalogues. Le code reste intact par défaut ; --write active le câblage t().</desc>
+  <rect width="1200" height="440" rx="20" fill="#0b1220"/>
+  <g font-family="Segoe UI,Arial,sans-serif">
+    <text x="56" y="64" font-size="20" letter-spacing="3" fill="#6dd6ff">NEXT.JS · REACT · VITE</text>
+    <text x="52" y="148" font-size="76" font-weight="700" letter-spacing="-3" fill="#f2f5fa">next-auto-i18n<tspan fill="#a3e635">_</tspan></text>
+    <text x="56" y="199" font-size="30" fill="#c6d1df">Vos textes. Des clés stables. Plusieurs langues.</text>
+  </g>
+  <path d="M56 235H1144" stroke="#2a384b"/>
+  <g font-family="Consolas,Menlo,monospace">
+    <text x="56" y="283" font-size="20" fill="#95a4ba">01 / JSX SOURCE</text>
+    <text x="56" y="334" font-size="29" fill="#f2f5fa">&lt;h1&gt;Bonjour&lt;/h1&gt;</text>
+    <path d="M390 322H438m-10-9 10 9-10 9" fill="none" stroke="#6dd6ff" stroke-width="3"/>
+    <text x="478" y="283" font-size="20" fill="#95a4ba">02 / CLÉ STABLE</text>
+    <text x="478" y="334" font-size="29" fill="#6dd6ff">"bonjour"</text>
+    <path d="M715 322H763m-10-9 10 9-10 9" fill="none" stroke="#6dd6ff" stroke-width="3"/>
+    <text x="803" y="283" font-size="20" fill="#95a4ba">03 / CATALOGUES</text>
+    <text x="803" y="325" font-size="27" fill="#f2f5fa">fr  Bonjour</text>
+    <text x="803" y="363" font-size="27" fill="#a3e635">en  Hello</text>
+  </g>
+  <g font-family="Segoe UI,Arial,sans-serif" font-size="21" fill="#95a4ba">
+    <text x="56" y="405">sync : code conservé</text>
+    <text x="478" y="405">--write : câblage t() explicite</text>
+  </g>
+</svg>

@@ -9,20 +9,26 @@ import {
   parseRetryAfter,
   redactSecret,
   truncate,
+  assertTranslations,
   type TranslateParams,
   type TranslationProvider,
 } from './types.js';
+import { translationBatches } from './batches.js';
+import { protectComplexIcu } from './icu.js';
+import { listProviderLanguages } from './languages.js';
 
 const DEEPL_FREE_API = 'https://api-free.deepl.com/v2/translate';
 const DEEPL_PRO_API = 'https://api.deepl.com/v2/translate';
-
-const BATCH_SIZE = 50;
 
 interface DeepLResponse {
   translations: Array<{ text: string; detected_source_language: string }>;
 }
 
 function protectPlaceholders(text: string): string {
+  const escape = (value: string) =>
+    value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const complex = protectComplexIcu(text, escape, value => `<x data-icu="1">${value}</x>`);
+  if (complex !== null) return complex;
   return text
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -32,6 +38,7 @@ function protectPlaceholders(text: string): string {
 
 function restorePlaceholders(text: string): string {
   return text
+    .replace(/<x\s+data-icu="1">([\s\S]*?)<\/x>/gi, '$1')
     .replace(/<x>\s*([^<]*?)\s*<\/x>/gi, '{$1}')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
@@ -56,18 +63,21 @@ export class DeepLProvider implements TranslationProvider {
     return this.apiKey.trimEnd().endsWith(':fx') ? DEEPL_FREE_API : DEEPL_PRO_API;
   }
 
+  listLanguages(type: 'source' | 'target' = 'target') {
+    return listProviderLanguages('deepl', this.apiKey, type);
+  }
+
   async translate(texts: string[], params: TranslateParams): Promise<string[]> {
     if (texts.length === 0) return [];
 
     const results: string[] = [];
-    for (let i = 0; i < texts.length; i += BATCH_SIZE) {
-      const batch = texts.slice(i, i + BATCH_SIZE);
+    for (const batch of translationBatches(texts, batch => this.body(batch, params), 128 * 1024)) {
       results.push(...(await this.translateBatch(batch, params)));
     }
     return results;
   }
 
-  private async translateBatch(texts: string[], params: TranslateParams): Promise<string[]> {
+  private body(texts: string[], params: TranslateParams): Record<string, unknown> {
     const body: Record<string, unknown> = {
       text: texts.map(protectPlaceholders),
       target_lang: params.targetLocale.toUpperCase(),
@@ -75,7 +85,12 @@ export class DeepLProvider implements TranslationProvider {
       tag_handling_version: 'v2',
       ignore_tags: ['x'],
     };
-    if (params.sourceLocale) body['source_lang'] = params.sourceLocale.toUpperCase();
+    if (params.sourceLocale) body['source_lang'] = params.sourceLocale.split('-')[0].toUpperCase();
+    return body;
+  }
+
+  private async translateBatch(texts: string[], params: TranslateParams): Promise<string[]> {
+    const body = this.body(texts, params);
 
     let response: Response;
     try {
@@ -104,7 +119,11 @@ export class DeepLProvider implements TranslationProvider {
     }
 
     const data = (await response.json()) as DeepLResponse;
-    return data.translations.map(t => restorePlaceholders(t.text));
+    const translated = Array.isArray(data?.translations)
+      ? data.translations.map(t => t?.text)
+      : undefined;
+    assertTranslations(translated, texts.length, this.name);
+    return translated.map(restorePlaceholders);
   }
 
   /** Neutralise la clé API avant tout affichage. */

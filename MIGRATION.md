@@ -1,7 +1,26 @@
 # Guides de migration
 
+- [2.1 → 2.2](#migration-21--22) — aperçu, purge, CI et scaffold React
 - [1.x → 2.0](#migration-1x--20) — durcissement, nommage ICU, Node 22
 - [0.x → 1.0](#migration-0x--10) — refonte zéro-mutation
+
+---
+
+## Migration 2.1 → 2.2
+
+- Passez à **Node.js 22.13 minimum** : les dépendances interactives et ESLint exigent cette version sur la branche Node 22. `.nvmrc` et la matrice CI sont alignés.
+- Réservez `init` aux projets sans configuration ; il refuse désormais de remplacer un `auto-i18n.config.json` existant. Utilisez `sync` pour les mises à jour.
+- `sync --dry-run` n'écrit plus les catalogues et n'effectue aucune traduction payante. L'API programmatique ajoute `dryRun` à `RunSyncInput` et `TranslateCatalogsInput`, et le statut de locale `pending` pour l'aperçu.
+- Un scan incomplet fait échouer `check`, `sync` et `init`. Une erreur partielle de placeholders fait aussi échouer la synchronisation, tout en conservant les traductions valides. `translation.failed` contient désormais ces locales partiellement traduites.
+- La purge conserve les clés mentionnées littéralement et conserve tout en présence d'une clé de traduction dynamique ; elle refuse un scan avec erreurs. Exécutez `sync --prune --dry-run` et vérifiez vos exclusions avant une purge.
+- **Scaffold React déjà installé :** les fichiers existants ne sont pas réécrits. Dans `src/i18n.ts`, ajoutez `prefix: '{', suffix: '}'` aux options `interpolation` si vos messages utilisent les placeholders générés `{name}`. Si votre application utilise déjà `{{name}}`, conservez sa configuration ou migrez les catalogues et appels ensemble. Les pluriels ICU complexes nécessitent toujours une intégration adaptée.
+- Si un ancien scaffold a créé `pt-BR: { ... }` sans guillemets ou `import in from ...`, corrigez la clé en `'pt-BR'` et l'identifiant d'import en `messages_in` (ainsi que sa référence dans `resources`). Les nouveaux fichiers générés utilisent ces formes sûres.
+- Les traductions déjà effacées par une ancienne purge doivent être restaurées depuis Git ou une sauvegarde ; cette correction ne les reconstitue pas.
+- `sync --write` est désormais disponible sur React/Vite. Le guide généré utilise `useTranslation()` ; les fonctions React `async` restent exclues du câblage automatique.
+- `check` signale aussi les messages ICU invalides et les variables perdues dans les traductions existantes (`invalidByLocale`). Les formules ICU sont analysées par un parseur complet ; une formule jusque-là tolérée mais invalide peut désormais faire échouer la CI.
+- Les opérations qui écrivent sont sérialisées par `.auto-i18n.lock/`. Après un arrêt forcé, vérifiez qu'aucune autre opération n'est active avant de supprimer ce dossier de verrou.
+- `--prune` élargit son contrôle de références aux autres dossiers applicatifs, même s'ils ne sont pas traduits par le scan configuré. Les dépendances et sorties générées restent exclues.
+- Pour les mainteneurs : conservez `npm ci` pour le développement ; utilisez `npm run release:pack` puis `npm publish <tarball> --access public` pour distribuer l'artefact avec ses dépendances corrigées embarquées. `npm publish` directement à la racine s'arrête volontairement.
 
 ---
 

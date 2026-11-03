@@ -99,12 +99,12 @@ next-auto-i18n init [--source <locale>] [--locale <l1,l2>] [--provider <name>] [
 À lancer régulièrement. Rescanne, met à jour le catalogue source (merge stable : les clés existantes sont préservées) et traduit uniquement les clés manquantes des langues cibles.
 
 ```bash
-next-auto-i18n sync [--prune]
+next-auto-i18n sync [--prune] [--dry-run]
 ```
 
 Code de sortie ≠ 0 si une locale n'a pas pu être traduite.
 
-Le merge stable ne retire jamais une clé de son côté : une string supprimée du code laisse sa clé — traduite dans chaque locale — accumulée indéfiniment dans les catalogues. `--prune` retire du catalogue source les clés dont le texte n'est plus détecté dans le code, ce qui les retire par ricochet de chaque locale cible. Sans `--prune`, ces clés sont seulement signalées (`check` les liste aussi) : un scan incomplet (fichier temporairement ignoré) ne doit jamais effacer une traduction au silence.
+Le merge stable conserve les clés existantes. `--prune` retire les clés dont le texte n'est plus détecté et qui ne sont plus mentionnées littéralement. Une seconde analyse contrôle les références dans les autres dossiers applicatifs, sans les exclusions configurées pour la traduction ; les dépendances et sorties générées restent exclues. Les références aux clés déjà câblées (`t()`, alias identifiés, méthodes comme `t.rich()`) sont protégées ; une clé dynamique conserve tous les messages par prudence. Un fichier illisible ou non parsable dans cette analyse bloque la purge avant écriture. `--dry-run` calcule le catalogue et les clés à retirer sans écrire ni appeler le provider ; les locales à traduire ont le statut `pending`.
 
 ### check
 
@@ -114,7 +114,7 @@ Diagnostic en lecture seule, pour la CI. N'écrit rien.
 next-auto-i18n check [--json]
 ```
 
-Rapporte : fichiers scannés, strings détectées (sûres / à revoir), strings non encore cataloguées (un `sync` les ajouterait), traductions manquantes par locale, clés orphelines (un `sync --prune` les retirerait), fichiers non parsables. **Code de sortie 1** s'il reste du travail (non catalogué ou non traduit), 0 sinon — les clés orphelines n'affectent jamais ce code de sortie.
+Rapporte : fichiers scannés, strings détectées (sûres / à revoir), strings non encore cataloguées (un `sync` les ajouterait), traductions manquantes par locale, clés orphelines (un `sync --prune` les retirerait), fichiers non parsables. **Code de sortie 1** s'il reste du travail (non catalogué ou non traduit) ou si le scan signale une erreur, 0 sinon — les clés orphelines seules n'affectent pas ce code de sortie.
 
 ## Câblage automatique (`sync --write`)
 
@@ -135,7 +135,9 @@ Par défaut, `next-auto-i18n` ne modifie jamais votre code (modèle zéro-mutati
 
 Dans tous les cas ignorés, la string reste `safe` dans le guide — rien n'est perdu, juste laissé au câblage manuel.
 
-Mécanique interne : les édits sont calculés comme des remplacements de plage `[start, end)` sur le texte source d'origine (jamais de mutation d'AST en direct), puis appliqués en une seule passe. `--dry-run` calcule les mêmes édits et affiche un diff coloré sans toucher au disque ; sans `--dry-run`, chaque fichier modifié est d'abord sauvegardé en `<fichier>.backup`. Le procédé est idempotent : un `t()` déjà en place n'est jamais re-câblé (l'extraction ignore le premier argument des appels `t()`/`translate()`).
+Sur React/Vite, le codemod injecte `import { useTranslation } from 'react-i18next'` et `const { t } = useTranslation();` dans les composants et hooks synchrones identifiables. Un `{t}` provenant déjà d'un `useTranslation()` sans arguments est réutilisé. Les mêmes règles de collision et de corps concis s'appliquent ; aucun import next-intl n'est injecté.
+
+Mécanique interne : les édits sont calculés comme des remplacements de plage `[start, end)` sur le texte source d'origine (jamais de mutation d'AST en direct), puis appliqués en une seule passe. `--dry-run` calcule les mêmes édits et affiche un diff coloré sans toucher au disque ni appeler le provider ; sans `--dry-run`, chaque fichier modifié est d'abord sauvegardé en `<fichier>.backup`. L'extraction ignore les clés de traduction (y compris les alias identifiés et `t.rich()`), les namespaces des factories de traduction et les templates tagués. Le codemod refuse les paramètres ou masquages de `t`, les traducteurs avec namespace et les imports de hooks ambigus.
 
 ## Configuration
 
@@ -285,13 +287,49 @@ Framework détecté automatiquement : si aucun `app/layout.tsx` (ni `src/app/lay
 
 `src/i18n.ts` importe directement chaque `messages/<locale>.json` (pas de chargement HTTP paresseux) et appelle `i18next.use(initReactI18next).init({ resources, lng, fallbackLng })`. Ce fichier, comme `LanguageSwitcher.tsx`, n'est jamais re-scanné par la suite (évite le bruit des codes de langue dans les catalogues).
 
-**Limite connue** : le guide d'intégration reste écrit pour l'API next-intl (`useTranslations`/`getTranslations`). Sur un projet react-i18next, le tableau du guide (ligne, texte détecté, clé) reste valable, mais remplacez le remplacement suggéré par `const { t } = useTranslation();` puis `t("clé")`. `sync --write` est désactivé sur un projet détecté react-i18next (le codemod injecte des imports `next-intl`, ce qui casserait un projet qui ne l'a pas) — tout reste dans le guide.
+Le guide détecte ce framework et propose `const { t } = useTranslation();`, avec un exemple React et les consignes d'initialisation correspondantes. `sync --write` est disponible pour les composants et hooks synchrones à corps identifiable. L'interpolation simple `{name}` est configurée dans les nouveaux scaffolds ; les pluriels natifs i18next (`_one`, `_other`…) demandent une adaptation des clés, distincte des formules ICU de next-intl.
 
 ## Traduction et providers
 
-DeepL est le provider par défaut ; Google Translate (`"provider": "google"`) est aussi supporté. Les deux protègent les placeholders `{var}` (balises XML pour DeepL, `<span translate="no">` en HTML pour Google) avant traduction, puis les restaurent ; toute traduction qui perdrait un placeholder fait échouer proprement la locale concernée (sans écraser le fichier existant). Les erreurs réseau / 429 / 5xx sont réessayées (3 tentatives, backoff exponentiel avec jitter, en respectant l'en-tête `Retry-After` s'il est fourni) ; 403 (auth/quota) / 400 échouent immédiatement. Chaque requête est abandonnée au bout de 30 secondes. La clé API voyage en en-tête HTTP et est masquée dans tout message d'erreur reprenant une réponse du provider.
+DeepL est le provider par défaut ; Google Translate (`"provider": "google"`) est aussi supporté. Les deux protègent les placeholders `{var}` (balises XML pour DeepL, `<span translate="no">` en HTML pour Google) avant traduction, puis les restaurent. Un lot incomplet ou contenant des traductions vides est refusé. Les traductions valides d'un lot à placeholders partiellement incohérents sont conservées ; les clés fautives restent manquantes, et la locale figure dans `translation.failed` pour faire échouer la commande. En cas d'échec complet, le fichier cible existant est préservé. Les erreurs réseau / 429 / 5xx sont réessayées (3 tentatives, backoff exponentiel avec jitter, en respectant l'en-tête `Retry-After` s'il est fourni) ; 403 (auth/quota) / 400 échouent immédiatement. Chaque requête est abandonnée au bout de 30 secondes. La clé API voyage en en-tête HTTP et est masquée dans tout message d'erreur reprenant une réponse du provider.
 
 Les locales sont traduites en parallèle (4 à la fois). Si rien n'est à traduire, aucune clé API n'est requise : un projet déjà complet se synchronise sans secret.
+
+Les lots sont bornés à 50 textes et à la taille UTF-8 du corps JSON après protection XML/HTML : 128 Kio pour DeepL, 100 000 octets pour Google Basic. Un texte qui dépasse cette limite à lui seul est refusé avant le réseau. La locale source régionale DeepL (`fr-FR`, par exemple) est normalisée en code de langue (`FR`).
+
+La grammaire ICU est analysée avec FormatJS. Dans les messages complexes, les tokens de contrôle sont protégés mais les textes de chaque branche restent traduisibles. Après traduction, les noms et types d'arguments, les sélections et les balises sont comparés ; la grammaire doit rester valide. `check` signale aussi les messages ou variables invalides dans les catalogues existants (`invalidByLocale`).
+
+La commande suivante consulte les langues du provider sans traduire de texte :
+
+```bash
+next-auto-i18n languages --provider deepl --json
+next-auto-i18n languages --provider deepl --source
+next-auto-i18n languages --provider google --json
+```
+
+Elle lit la clé standard du provider dans l'environnement ou `.env.local`. Les providers programmatiques peuvent implémenter la méthode optionnelle `listLanguages(type)`.
+
+## Verrou et reprise
+
+`init` et `sync` prennent un verrou inter-processus `.auto-i18n.lock/`, conservé pendant le câblage. Une deuxième opération échoue immédiatement au lieu de modifier les mêmes fichiers. L'aperçu reste en lecture seule. Le verrou est supprimé à la sortie normale et après une erreur ; après un arrêt forcé, vérifiez l'arrêt de l'ancien processus avant de retirer ce dossier.
+
+Les catalogues sont remplacés atomiquement un par un. Un arrêt entre deux fichiers peut donc laisser une synchronisation partielle : une nouvelle exécution traduit les clés encore manquantes. Cette garantie ne constitue pas une transaction globale entre tous les catalogues et composants.
+
+## Validation des frameworks et publication
+
+La [matrice de compatibilité](./COMPATIBILITY.md) décrit les versions réellement compilées et exécutées, ainsi que le contrôle hebdomadaire des versions `latest`.
+
+```bash
+npm ci
+npm run build
+npm run test:coverage
+npm run test:compat
+npm run release:pack
+```
+
+`release:pack` assemble une copie de publication sous `.tmp/`, avec ts-morph et ses dépendances corrigées embarqués. Il ne modifie ni le manifeste ni l'installation de développement. Les essais consommateurs installent cet artefact et contrôlent la version minimatch effectivement résolue.
+
+Publiez le tarball affiché par cette commande avec `npm publish <tarball> --access public`. Une publication directement depuis le checkout est bloquée pour éviter d'expédier une résolution transitive différente de celle validée. L'assemblage inclut les fichiers de licence des dépendances embarquées.
 
 Le provider est derrière l'interface `TranslationProvider` (`src/adapters/translation`). Ajouter un provider revient à l'enregistrer dans `createProvider` sans toucher au reste.
 

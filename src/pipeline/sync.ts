@@ -15,6 +15,7 @@ import {
 import { buildSourceCatalog, orphanKeys, pruneCatalog } from '../core/catalog/index.js';
 import type { Catalog, ExtractedString, Runtime } from '../core/types.js';
 import { readCatalog, writeCatalog, ensureDir } from '../adapters/fs/index.js';
+import { withProjectLock } from '../adapters/fs/lock.js';
 
 export interface RunSyncInput {
   projectRoot: string;
@@ -34,9 +35,14 @@ export interface RunSyncInput {
    * effacer des traductions au silence.
    */
   prune?: boolean;
+  /** Aperçu : aucune écriture ni requête de traduction. */
+  dryRun?: boolean;
 }
 
 export interface SyncReport {
+  dryRun?: boolean;
+  /** La purge a été neutralisée en présence de clés de traduction dynamiques. */
+  pruneBlockedByDynamicKeys?: boolean;
   filesScanned: number;
   parseErrors: string[];
   detected: { total: number; safe: number; review: number };
@@ -47,7 +53,7 @@ export interface SyncReport {
   translation: TranslateCatalogsResult;
   /** Clés orphelines détectées (texte disparu du code). Vide si `prune` est actif : déjà retirées. */
   orphanedKeys: string[];
-  /** Clés effectivement retirées ce run (non vide seulement avec `prune: true`). */
+  /** Clés retirées, ou prévues en aperçu (non vide seulement avec `prune: true`). */
   prunedKeys: string[];
   /** Données brutes pour la génération du guide d'intégration. */
   strings: ExtractedString[];
@@ -56,6 +62,10 @@ export interface SyncReport {
 }
 
 export async function runSync(input: RunSyncInput): Promise<SyncReport> {
+  return withProjectLock(input.projectRoot, () => syncLocked(input), input.dryRun);
+}
+
+async function syncLocked(input: RunSyncInput): Promise<SyncReport> {
   const {
     projectRoot,
     provider,
@@ -65,12 +75,18 @@ export async function runSync(input: RunSyncInput): Promise<SyncReport> {
     ignore,
     rootDirs,
     prune = false,
+    dryRun = false,
   } = input;
 
   const scan = await scanProject(projectRoot, { ignorePatterns: ignore, rootDirs });
+  // Avant une suppression, contrôler aussi les références dans les dossiers
+  // exclus de la traduction. Les dépendances et sorties générées restent exclues.
+  const referenceScan = prune ? await scanProject(projectRoot, { allRoots: true }) : scan;
+  if (prune && referenceScan.parseErrors.length > 0) {
+    throw new Error('Purge refusée : scan incomplet (fichiers illisibles ou non parsables).');
+  }
 
   const absMessagesDir = resolve(projectRoot, messagesDir);
-  await ensureDir(absMessagesDir);
   const sourcePath = join(absMessagesDir, `${sourceLocale}.json`);
   const rawExistingSource = await readCatalog(sourcePath);
 
@@ -78,7 +94,11 @@ export async function runSync(input: RunSyncInput): Promise<SyncReport> {
 
   // Détection avant toute mutation : la liste rapportée doit refléter l'état
   // réel du catalogue au début du run, que `prune` soit actif ou non.
-  const orphanedKeys = orphanKeys(rawExistingSource, values);
+  const orphanedKeys = orphanKeys(
+    rawExistingSource,
+    [...values, ...referenceScan.strings.map(s => s.value)],
+    referenceScan.references,
+  );
   const prunedKeys = prune ? orphanedKeys : [];
   const existingSource = prune ? pruneCatalog(rawExistingSource, orphanedKeys) : rawExistingSource;
 
@@ -88,7 +108,6 @@ export async function runSync(input: RunSyncInput): Promise<SyncReport> {
     added,
     reused,
   } = buildSourceCatalog(values, existingSource);
-  await writeCatalog(sourcePath, sourceCatalog);
 
   const existingTargets = Object.fromEntries(
     await Promise.all(
@@ -99,20 +118,28 @@ export async function runSync(input: RunSyncInput): Promise<SyncReport> {
     ),
   ) as Record<string, Catalog>;
 
+  // Valider tous les fichiers avant de modifier le premier catalogue.
+  if (!dryRun) {
+    await ensureDir(absMessagesDir);
+    await writeCatalog(sourcePath, sourceCatalog);
+  }
+
   const translation = await translateCatalogs({
     provider,
     sourceLocale,
     sourceCatalog,
     targetLocales,
     existingTargets,
+    dryRun,
   });
 
-  await Promise.all(
-    translation.byLocale
-      // Une locale en échec garde son fichier existant intact.
-      .filter(result => result.status !== 'failed')
-      .map(result => writeCatalog(join(absMessagesDir, `${result.locale}.json`), result.catalog)),
-  );
+  if (!dryRun)
+    await Promise.all(
+      translation.byLocale
+        // Une locale en échec garde son fichier existant intact.
+        .filter(result => result.status !== 'failed')
+        .map(result => writeCatalog(join(absMessagesDir, `${result.locale}.json`), result.catalog)),
+    );
 
   let safe = 0;
   let review = 0;
@@ -126,6 +153,8 @@ export async function runSync(input: RunSyncInput): Promise<SyncReport> {
   }
 
   return {
+    dryRun,
+    pruneBlockedByDynamicKeys: prune && referenceScan.references.dynamic,
     filesScanned: scan.filesScanned,
     parseErrors: scan.parseErrors,
     detected: { total: scan.strings.length, safe, review },

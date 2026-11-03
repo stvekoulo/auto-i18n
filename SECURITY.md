@@ -40,3 +40,11 @@ traduction externe. Entrent dans le périmètre :
 Le texte extrait de votre code source est transmis au provider de traduction
 choisi (DeepL ou Google). Vérifiez que cela est compatible avec la
 confidentialité de votre projet avant de lancer `sync`.
+
+## Distribution et dépendances
+
+Le verrou `package-lock.json` et les overrides servent au développement du dépôt. La release est assemblée séparément avec `npm run release:pack` : ts-morph et sa fermeture de dépendances installée sont embarqués dans le tarball, avec minimatch corrigé. Les essais consommateurs contrôlent la version effectivement chargée, puis compilent et exécutent de vraies applications.
+
+Publiez le tarball validé, plutôt que le checkout directement. Le script `prepublishOnly` bloque la seconde méthode afin d'éviter de distribuer une résolution transitive différente de celle vérifiée.
+
+`init` et `sync` prennent un verrou de projet. Les catalogues sont remplacés atomiquement individuellement ; cela ne constitue pas une transaction couvrant tous les fichiers en cas d'arrêt forcé. Le dossier `.auto-i18n.lock/` n'est à retirer manuellement qu'après avoir confirmé l'arrêt de l'opération qui le détenait.

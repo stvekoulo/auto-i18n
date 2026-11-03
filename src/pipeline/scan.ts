@@ -19,6 +19,7 @@ import type { IgnoredString } from '../core/scan/index.js';
 import type { ExtractedString, Runtime } from '../core/types.js';
 import type { FilterOptions } from '../core/filters/index.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
+import type { CatalogReferences } from '../core/scan/references.js';
 
 export interface ScanProjectOptions extends CollectOptions, FilterOptions {
   /** Fichiers traités en parallèle sur le thread principal (défaut 16). */
@@ -36,6 +37,7 @@ export interface ScanProjectOptions extends CollectOptions, FilterOptions {
 }
 
 export interface ProjectScanResult {
+  references: CatalogReferences;
   strings: ExtractedString[];
   ignored: IgnoredString[];
   /** Fichiers non parsables (syntaxe invalide) — aucune mutation, juste signalés. */
@@ -73,8 +75,12 @@ export async function scanProject(
   const ignored: IgnoredString[] = [];
   const parseErrors: string[] = [];
   const fileRuntimes = new Map<string, Runtime>();
+  const literals = new Set<string>();
+  let dynamic = false;
 
   for (const outcome of outcomes) {
+    for (const literal of outcome.references.literals) literals.add(literal);
+    dynamic ||= outcome.references.dynamic;
     if (outcome.parseError) {
       parseErrors.push(outcome.file);
       continue;
@@ -85,6 +91,7 @@ export async function scanProject(
   }
 
   return {
+    references: { literals: [...literals], dynamic },
     strings,
     ignored,
     parseErrors,

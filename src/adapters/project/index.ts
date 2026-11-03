@@ -32,13 +32,13 @@ export interface ProjectInfo {
 
 /** Cherche le layout racine dans app/ ou src/app/. */
 export async function findLayoutFile(projectRoot: string): Promise<string | null> {
-  for (const candidate of [
-    join(projectRoot, 'app', 'layout.tsx'),
-    join(projectRoot, 'src', 'app', 'layout.tsx'),
-    join(projectRoot, 'app', 'layout.jsx'),
-    join(projectRoot, 'src', 'app', 'layout.jsx'),
-  ]) {
-    if (await fileExists(candidate)) return candidate;
+  for (const directory of ['app', join('src', 'app')]) {
+    for (const scope of ['', '[locale]']) {
+      for (const extension of ['tsx', 'jsx', 'js', 'ts']) {
+        const candidate = join(projectRoot, directory, scope, `layout.${extension}`);
+        if (await fileExists(candidate)) return candidate;
+      }
+    }
   }
   return null;
 }
