@@ -1,8 +1,21 @@
 # Guides de migration
 
+- [2.2 → 3.0](#migration-22--30) — moteur `typescript` natif, providers IA, catalogues imbriqués et nouvelles commandes
 - [2.1 → 2.2](#migration-21--22) — aperçu, purge, CI et scaffold React
 - [1.x → 2.0](#migration-1x--20) — durcissement, nommage ICU, Node 22
 - [0.x → 1.0](#migration-0x--10) — refonte zéro-mutation
+
+---
+
+## Migration 2.2 → 3.0
+
+La version `3.0` conserve les fichiers `auto-i18n.config.json` et catalogues à plat existants sans modification obligatoire, tout en modernisant le moteur AST et l'écosystème de commandes :
+
+- **Remplacement de `ts-morph` et `dotenv` :** `parseSource()` renvoie désormais directement un `ts.SourceFile` du compilateur officiel `typescript` (au lieu d'un wrapper `ts-morph`). Si vous appelez uniquement `scanProject`, `scanContent`, `extractStrings`, `computeWriteEdits`, `runInit`, `runSyncCommand` ou `runCheck`, aucun changement de code n'est requis. Si un script externe appelait des méthodes propres à `ts-morph` sur le retour de `parseSource`, utilisez les helpers de `typescript`.
+- **Fonctions fléchées à corps concis (`sync --write`) :** `export const Badge = () => <span>Nouveau</span>` est désormais automatiquement converti en bloc `{ const t = ...; return (...); }` au lieu d'être ignoré (`concise_body`). Utilisez `--dry-run` pour prévisualiser le diff ou `--no-backup` sur un arbre Git propre.
+- **Détection des textes source modifiés :** `sync` crée `messages/.auto-i18n-hashes.json` afin de détecter les corrections ultérieures d'un texte source existant et de mettre à jour ses traductions automatiquement. Vous pouvez versionner ce fichier pour partager cet état avec la CI (`check` signale alors `outdatedKeys` dès qu'un texte source est modifié sans `sync`), ou l'ignorer si vous ne souhaitez ce suivi qu'en local.
+- **Entités JSX et textes en minuscules :** l'extracteur décode désormais les entités HTML/JSX (`&apos;` → `'`, `&amp;` → `&`) dans `JsxText` et retient les libellés multi-mots en minuscules (`"se connecter"`, `"en savoir plus"`), auparavant écartés à tort comme des classes CSS. Un premier `sync` en 3.0 peut donc détecter ces textes jusque-là manqués.
+- **Nouvelles options disponibles sans migration forcée :** providers `gemini`, `openai` et `anthropic` (`model`, `tone`, `glossary`), `"catalogFormat": "nested"` (`namespaceByFile`), support Expo / React Native, ainsi que les commandes `add-locale`, `restore`, `clean-backups`, `sync --watch` et `check --format github`.
 
 ---
 

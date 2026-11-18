@@ -16,6 +16,11 @@ export function renderCheckReport(projectRoot: string, report: CheckReport): voi
   for (const [locale, keys] of Object.entries(report.invalidByLocale ?? {})) {
     logger.warn(`${locale} — messages ICU ou variables invalides : ${keys.join(', ')}`);
   }
+  if ((report.outdatedKeys ?? []).length > 0) {
+    logger.warn(
+      `${report.outdatedKeys.length} clé(s) modifiée(s) en source à retraduire : ${report.outdatedKeys.slice(0, MAX_LIST).join(', ')}`,
+    );
+  }
   logger.info(
     `${report.filesScanned} fichier${report.filesScanned > 1 ? 's' : ''} scanné${report.filesScanned > 1 ? 's' : ''}`,
   );

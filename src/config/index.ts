@@ -1,32 +1,22 @@
 /**
  * Chargement et validation de la configuration `auto-i18n.config.json`.
- *
- * La validation est exhaustive et rapporte tous les problèmes d'un coup :
- * corriger un fichier de configuration erreur par erreur est pénible, et une
- * valeur invalide acceptée en silence se paie plus loin (scan vide, écriture
- * hors du projet, provider inconnu).
  */
 
-import { readFile, writeFile } from 'fs/promises';
-import { isAbsolute, join, normalize } from 'path';
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import type { CatalogFormat } from '../core/types.js';
+import type { TranslationTone } from '../adapters/translation/types.js';
+import { staysInsideProject } from '../utils/paths.js';
 
 export const CONFIG_FILENAME = 'auto-i18n.config.json';
 
-/**
- * Référence du schéma JSON écrite dans les configurations générées.
- *
- * URL publique plutôt que chemin `node_modules` : ce dernier ne résout ni sous
- * Yarn PnP ni depuis un paquet hissé à la racine d'un monorepo.
- */
 export const CONFIG_SCHEMA_PATH =
   'https://raw.githubusercontent.com/stvekoulo/auto-i18n/main/schema/auto-i18n.config.schema.json';
 
-/** Providers de traduction reconnus. */
-export const SUPPORTED_PROVIDERS = ['deepl', 'google'] as const;
+export const SUPPORTED_PROVIDERS = ['deepl', 'google', 'openai', 'gemini', 'anthropic'] as const;
 export type ProviderName = (typeof SUPPORTED_PROVIDERS)[number];
 
 export interface AutoI18nConfig {
-  /** Référence au schéma JSON — active l'autocomplétion dans l'éditeur. */
   $schema?: string;
   sourceLocale: string;
   targetLocales: string[];
@@ -34,18 +24,25 @@ export interface AutoI18nConfig {
   apiKeyEnv: string;
   messagesDir: string;
   ignore: string[];
-  /**
-   * Dossiers de premier niveau à scanner. Absent = liste par défaut
-   * (`app`, `src`, `components`…). À renseigner si le code applicatif vit
-   * ailleurs, sinon le scan ne trouve rien.
-   */
   rootDirs?: string[];
+  /** Modèle optionnel pour les providers LLM (`gpt-4o-mini`, `gemini-2.5-flash`…). */
+  model?: string;
+  /** Registre de langue (`formal`, `informal`, `neutral`). */
+  tone?: TranslationTone;
+  /** Format des catalogues JSON (`flat` par défaut, ou `nested` par points). */
+  catalogFormat?: CatalogFormat;
+  /** Préfixe les nouvelles clés par le nom du fichier/composant en mode `nested`. */
+  namespaceByFile?: boolean;
+  /** Glossaire métier (`terme source` → `traduction imposée`). */
+  glossary?: Record<string, string>;
 }
 
-/** Variable d'env par défaut pour chaque provider connu. */
 export const PROVIDER_API_KEY_ENV: Record<string, string> = {
   deepl: 'AUTO_I18N_DEEPL_KEY',
   google: 'AUTO_I18N_GOOGLE_KEY',
+  openai: 'AUTO_I18N_OPENAI_KEY',
+  gemini: 'AUTO_I18N_GEMINI_KEY',
+  anthropic: 'AUTO_I18N_ANTHROPIC_KEY',
 };
 
 const DEFAULTS: Omit<AutoI18nConfig, 'sourceLocale' | 'targetLocales'> = {
@@ -64,26 +61,31 @@ const KNOWN_KEYS = new Set([
   'messagesDir',
   'ignore',
   'rootDirs',
+  'model',
+  'tone',
+  'catalogFormat',
+  'namespaceByFile',
+  'glossary',
 ]);
 
-/** Étiquette de langue façon BCP 47 : `fr`, `pt-BR`, `zh-Hans-CN`. */
 const LOCALE_RE = /^[a-zA-Z]{2,3}(-[a-zA-Z0-9]{2,8})*$/;
 const ENV_VAR_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const VALID_TONES = new Set(['formal', 'informal', 'neutral']);
+const VALID_FORMATS = new Set(['flat', 'nested']);
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(v => typeof v === 'string');
 }
 
-/** Vrai si `candidate` reste sous la racine du projet. */
-function staysInsideProject(candidate: string): boolean {
-  if (isAbsolute(candidate)) return false;
-  const normalized = normalize(candidate).replace(/\\/g, '/');
-  return normalized !== '..' && !normalized.startsWith('../');
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every(v => typeof v === 'string')
+  );
 }
 
-/**
- * Renvoie la liste des problèmes d'une configuration brute (vide si valide).
- */
 export function validateConfig(value: unknown): string[] {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     return [`${CONFIG_FILENAME} doit contenir un objet JSON.`];
@@ -128,7 +130,7 @@ export function validateConfig(value: unknown): string[] {
       typeof config.provider !== 'string' ||
       !SUPPORTED_PROVIDERS.includes(config.provider as ProviderName)
     ) {
-      problems.push(`"provider" doit valoir ${SUPPORTED_PROVIDERS.join(' ou ')}.`);
+      problems.push(`"provider" doit valoir ${SUPPORTED_PROVIDERS.join(', ')}.`);
     }
   }
 
@@ -144,8 +146,6 @@ export function validateConfig(value: unknown): string[] {
     if (typeof config.messagesDir !== 'string' || config.messagesDir.trim() === '') {
       problems.push('"messagesDir" doit être un chemin non vide.');
     } else if (!staysInsideProject(config.messagesDir)) {
-      // Les catalogues sont écrits sans autre contrôle : un chemin qui sort de
-      // la racine ferait écrire l'outil n'importe où sur la machine.
       problems.push('"messagesDir" doit rester à l\'intérieur du projet.');
     }
   }
@@ -157,13 +157,40 @@ export function validateConfig(value: unknown): string[] {
   if (config.rootDirs !== undefined) {
     if (!isStringArray(config.rootDirs) || config.rootDirs.length === 0) {
       problems.push('"rootDirs" doit être un tableau non vide de noms de dossiers.');
+    } else if (config.rootDirs.some(dir => !staysInsideProject(dir))) {
+      problems.push('"rootDirs" doit rester à l\'intérieur du projet.');
     }
+  }
+
+  if (config.model !== undefined && (typeof config.model !== 'string' || !config.model.trim())) {
+    problems.push('"model" doit être une chaîne non vide.');
+  }
+
+  if (
+    config.tone !== undefined &&
+    (typeof config.tone !== 'string' || !VALID_TONES.has(config.tone))
+  ) {
+    problems.push('"tone" doit valoir formal, informal ou neutral.');
+  }
+
+  if (
+    config.catalogFormat !== undefined &&
+    (typeof config.catalogFormat !== 'string' || !VALID_FORMATS.has(config.catalogFormat))
+  ) {
+    problems.push('"catalogFormat" doit valoir flat ou nested.');
+  }
+
+  if (config.namespaceByFile !== undefined && typeof config.namespaceByFile !== 'boolean') {
+    problems.push('"namespaceByFile" doit être un booléen.');
+  }
+
+  if (config.glossary !== undefined && !isStringRecord(config.glossary)) {
+    problems.push('"glossary" doit être un objet de paires clé/valeur de type chaîne.');
   }
 
   return problems;
 }
 
-/** Vrai si la configuration brute est exploitable telle quelle. */
 export function isValidConfig(value: unknown): value is AutoI18nConfig {
   return validateConfig(value).length === 0;
 }

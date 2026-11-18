@@ -4,6 +4,7 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     environment: 'node',
+    isolate: false,
     // Les tests de commandes montent un vrai projet temporaire et le scannent
     // avec le compilateur TypeScript. Sur un cache froid (première exécution,
     // runner CI), l'amorçage dépasse le budget de 5 s par défaut.
@@ -17,9 +18,12 @@ export default defineConfig({
         // Câblage commander et invites interactives : rien à assurer ici que
         // les tests de commandes ne couvrent pas déjà en dessous.
         'src/cli/**',
-        // Ré-exports uniquement.
+        // Ré-exports et interfaces pures uniquement.
         'src/index.ts',
         'src/core/index.ts',
+        'src/core/guide/index.ts',
+        'src/adapters/scaffold/templates.ts',
+        'src/adapters/worker/protocol.ts',
         // Point d'entrée d'un thread : il s'exécute hors du processus
         // instrumenté, donc invisible pour v8. Sa logique vit dans
         // `scan-file.ts`, couverte, et son câblage est exercé de bout en bout

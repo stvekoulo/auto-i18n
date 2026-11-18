@@ -1,105 +1,190 @@
-import {
-  Node,
-  type ArrowFunction,
-  type FunctionDeclaration,
-  type FunctionExpression,
-  type SourceFile,
-} from 'ts-morph';
+import ts from 'typescript';
 import type { TranslationFramework } from '../types.js';
 
-export type HostFn = FunctionDeclaration | ArrowFunction | FunctionExpression;
+export type HostFn = ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression;
 
 /** Une liaison destructurée compte autant qu'un identifiant simple. */
-function binds(node: Node, name: string): boolean {
-  if (Node.isIdentifier(node)) return node.getText() === name;
-  if (Node.isObjectBindingPattern(node) || Node.isArrayBindingPattern(node)) {
-    return node
-      .getElements()
-      .some(element => Node.isBindingElement(element) && binds(element.getNameNode(), name));
+export function binds(node: ts.BindingName, name: string): boolean {
+  if (ts.isIdentifier(node)) return node.text === name;
+  if (ts.isObjectBindingPattern(node) || ts.isArrayBindingPattern(node)) {
+    return node.elements.some(el => ts.isBindingElement(el) && binds(el.name, name));
   }
   return false;
 }
 
-export function findTopLevelTDeclaration(fn: HostFn): Node | undefined {
-  const body = fn.getBody();
-  if (!body || !Node.isBlock(body)) return undefined;
-  for (const statement of body.getStatements()) {
-    if (!Node.isVariableStatement(statement)) continue;
-    for (const declaration of statement.getDeclarations()) {
-      if (binds(declaration.getNameNode(), 't')) return declaration;
+export function findTopLevelTDeclaration(fn: HostFn): ts.VariableDeclaration | undefined {
+  const body = fn.body;
+  if (!body || !ts.isBlock(body)) return undefined;
+  for (const statement of body.statements) {
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      if (binds(declaration.name, 't')) return declaration;
     }
   }
   return undefined;
 }
 
-/** Seul un traducteur sans namespace peut recevoir les clés du catalogue à plat. */
-export function isValidTSource(decl: Node, framework: TranslationFramework = 'next-intl'): boolean {
-  if (!Node.isVariableDeclaration(decl)) return false;
-  const init = decl.getInitializer();
-  const call = init && Node.isAwaitExpression(init) ? init.getExpression() : init;
-  return (
-    !!call &&
-    Node.isCallExpression(call) &&
-    (framework === 'react-i18next'
-      ? Node.isObjectBindingPattern(decl.getNameNode()) &&
-        call.getExpression().getText() === 'useTranslation'
-      : ['useTranslations', 'getTranslations'].includes(call.getExpression().getText())) &&
-    call.getArguments().length === 0
-  );
+function usesReactHook(framework: TranslationFramework): boolean {
+  return framework === 'react-i18next' || framework === 'expo';
 }
 
-/** Refuser les collisions plutôt que d'inférer le type d'un paramètre ou d'un alias. */
-export function hasBindingConflict(fn: HostFn, sourceFile: SourceFile, hook: string): boolean {
-  if (fn.getParameters().some(p => binds(p.getNameNode(), 't'))) return true;
+/**
+ * Inspecte une déclaration `t` existante :
+ * - `'root'` : traducteur sans namespace (`useTranslations()`, `useTranslation()`)
+ * - `{ namespace }` : traducteur namespacé (`useTranslations('Header')`)
+ * - `null` : origine non reconnue (conflit)
+ */
+export function inspectTSource(
+  decl: ts.VariableDeclaration,
+  sf: ts.SourceFile,
+  framework: TranslationFramework = 'next-intl',
+): 'root' | { namespace: string } | null {
+  if (!decl.initializer) return null;
+  const call = ts.isAwaitExpression(decl.initializer)
+    ? decl.initializer.expression
+    : decl.initializer;
+  if (!ts.isCallExpression(call)) return null;
+  const callee = call.expression.getText(sf);
+
+  const validCallee = usesReactHook(framework)
+    ? ts.isObjectBindingPattern(decl.name) && callee === 'useTranslation'
+    : callee === 'useTranslations' || callee === 'getTranslations';
+  if (!validCallee) return null;
+
+  if (call.arguments.length === 0) return 'root';
+  if (
+    call.arguments.length === 1 &&
+    (ts.isStringLiteral(call.arguments[0]) || ts.isNoSubstitutionTemplateLiteral(call.arguments[0]))
+  ) {
+    return { namespace: call.arguments[0].text };
+  }
+  return null;
+}
+
+export function isValidTSource(
+  decl: ts.VariableDeclaration,
+  sf: ts.SourceFile,
+  framework: TranslationFramework = 'next-intl',
+): boolean {
+  return inspectTSource(decl, sf, framework) === 'root';
+}
+
+function hasOuterTBinding(fn: HostFn): boolean {
+  let current: ts.Node | undefined = fn.parent;
+  while (current) {
+    if (
+      ts.isFunctionDeclaration(current) ||
+      ts.isArrowFunction(current) ||
+      ts.isFunctionExpression(current)
+    ) {
+      if (current.parameters.some(p => binds(p.name, 't'))) return true;
+      if (current.body && ts.isBlock(current.body)) {
+        for (const stmt of current.body.statements) {
+          if (!ts.isVariableStatement(stmt)) continue;
+          if (stmt.declarationList.declarations.some(d => binds(d.name, 't'))) return true;
+        }
+      }
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
+function referencesIdentifierT(fn: HostFn): boolean {
+  let found = false;
+  function visit(node: ts.Node): void {
+    if (found) return;
+    if (ts.isIdentifier(node) && node.text === 't') {
+      const parent = node.parent;
+      const isPropName =
+        parent &&
+        ((ts.isPropertyAccessExpression(parent) && parent.name === node) ||
+          (ts.isPropertyAssignment(parent) && parent.name === node));
+      if (!isPropName) {
+        found = true;
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  }
+  if (fn.body) visit(fn.body);
+  return found;
+}
+
+/** Refuser les collisions plutôt que d'écraser ou masquer un `t` ou un import ambigu. */
+export function hasBindingConflict(fn: HostFn, sourceFile: ts.SourceFile, hook: string): boolean {
+  if (fn.parameters.some(p => binds(p.name, 't'))) return true;
   const existing = findTopLevelTDeclaration(fn);
+  if (!existing && hasOuterTBinding(fn) && referencesIdentifierT(fn)) return true;
+
   let conflict = false;
-  fn.forEachDescendant(node => {
-    if (node === existing) return;
+  function checkDescendant(node: ts.Node): void {
+    if (conflict) return;
+    if (node !== existing) {
+      if ((ts.isVariableDeclaration(node) || ts.isParameter(node)) && binds(node.name, 't')) {
+        conflict = true;
+        return;
+      }
+      if (
+        (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) &&
+        node.name?.text === 't'
+      ) {
+        conflict = true;
+        return;
+      }
+    }
+    ts.forEachChild(node, checkDescendant);
+  }
+  if (fn.body) ts.forEachChild(fn.body, checkDescendant);
+  if (conflict) return true;
+
+  const expectedModule =
+    hook === 'useTranslation'
+      ? 'react-i18next'
+      : hook === 'useTranslations'
+        ? 'next-intl'
+        : 'next-intl/server';
+
+  for (const stmt of sourceFile.statements) {
+    if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
+    const clause = stmt.importClause;
+    const mod = ts.isStringLiteral(stmt.moduleSpecifier) ? stmt.moduleSpecifier.text : '';
+    if (clause.name?.text === hook) return true;
     if (
-      (Node.isVariableDeclaration(node) ||
-        Node.isParameterDeclaration(node) ||
-        Node.isFunctionDeclaration(node) ||
-        Node.isClassDeclaration(node)) &&
-      node.getNameNode() &&
-      binds(node.getNameNode()!, 't')
-    )
-      conflict = true;
-  });
-  for (const declaration of sourceFile.getImportDeclarations()) {
-    if (
-      declaration.getDefaultImport()?.getText() === hook ||
-      declaration.getNamespaceImport()?.getText() === hook
-    )
-      conflict = true;
-    for (const specifier of declaration.getNamedImports()) {
-      const local = specifier.getAliasNode()?.getText() ?? specifier.getName();
-      if (specifier.getName() === hook || local === hook) {
-        const expectedModule =
-          hook === 'useTranslation'
-            ? 'react-i18next'
-            : hook === 'useTranslations'
-              ? 'next-intl'
-              : 'next-intl/server';
-        if (
-          local !== hook ||
-          declaration.getModuleSpecifierValue() !== expectedModule ||
-          declaration.isTypeOnly() ||
-          specifier.isTypeOnly()
-        )
-          conflict = true;
+      clause.namedBindings &&
+      ts.isNamespaceImport(clause.namedBindings) &&
+      clause.namedBindings.name.text === hook
+    ) {
+      return true;
+    }
+    if (clause.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const spec of clause.namedBindings.elements) {
+        const imported = (spec.propertyName ?? spec.name).text;
+        const local = spec.name.text;
+        if (imported === hook || local === hook) {
+          if (local !== hook || mod !== expectedModule || clause.isTypeOnly || spec.isTypeOnly) {
+            return true;
+          }
+        }
       }
     }
   }
-  sourceFile.forEachDescendant(node => {
-    if (
-      (Node.isVariableDeclaration(node) ||
-        Node.isParameterDeclaration(node) ||
-        Node.isFunctionDeclaration(node) ||
-        Node.isClassDeclaration(node)) &&
-      node.getNameNode() &&
-      binds(node.getNameNode()!, hook)
-    )
+
+  function checkHookShadow(node: ts.Node): void {
+    if (conflict) return;
+    if ((ts.isVariableDeclaration(node) || ts.isParameter(node)) && binds(node.name, hook)) {
       conflict = true;
-  });
+      return;
+    }
+    if (
+      (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) &&
+      node.name?.text === hook
+    ) {
+      conflict = true;
+      return;
+    }
+    ts.forEachChild(node, checkHookShadow);
+  }
+  ts.forEachChild(sourceFile, checkHookShadow);
   return conflict;
 }

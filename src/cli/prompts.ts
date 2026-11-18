@@ -6,6 +6,9 @@ const PROVIDER_LABELS: Record<string, { name: string; keyUrl: string }> = {
     name: 'Google Translate',
     keyUrl: 'https://cloud.google.com/translate/docs/setup',
   },
+  openai: { name: 'OpenAI (contextuel)', keyUrl: 'https://platform.openai.com/api-keys' },
+  gemini: { name: 'Google Gemini (contextuel)', keyUrl: 'https://aistudio.google.com/apikey' },
+  anthropic: { name: 'Anthropic Claude (contextuel)', keyUrl: 'https://console.anthropic.com/' },
 };
 
 export async function askProvider(): Promise<string> {
@@ -14,6 +17,9 @@ export async function askProvider(): Promise<string> {
     choices: [
       { name: 'DeepL', value: 'deepl' },
       { name: 'Google Translate', value: 'google' },
+      { name: 'Google Gemini (IA contextuelle)', value: 'gemini' },
+      { name: 'OpenAI (IA contextuelle)', value: 'openai' },
+      { name: 'Anthropic Claude (IA contextuelle)', value: 'anthropic' },
     ],
     default: 'deepl',
   });
@@ -55,7 +61,7 @@ export function parseLocales(raw: string, sourceLocale: string): string[] {
       raw
         .split(',')
         .map(s => s.trim().toLowerCase())
-        .filter(s => s.length > 0 && s !== sourceLocale),
+        .filter(s => s.length > 0 && s !== sourceLocale.toLowerCase()),
     ),
   ];
 }

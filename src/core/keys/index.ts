@@ -1,24 +1,17 @@
 /**
- * Génération déterministe des clés i18n à partir du texte source.
- *
- * Même entrée → même clé. Aucune dépendance I/O.
+ * Génération déterministe des clés i18n à partir du texte source (et namespace optionnel).
  */
+
+import { basename, dirname, extname } from 'node:path';
 
 const MAX_KEY_LENGTH = 60;
+const GENERIC_FILENAMES = new Set(['index', 'page', 'layout', '_layout', 'route', 'default']);
 
-/**
- * Transforme une valeur de string en clé de base (`snake_case`, sans accents).
- * Ne gère pas l'unicité : utiliser {@link KeyAllocator} pour ça.
- */
 export function buildKey(value: string): string {
   let key = value;
-
-  // Placeholders `{var}` → espace (séparateur de mots).
   key = key.replace(/[${}]/g, ' ');
-  // Décomposition + suppression des diacritiques (U+0300–U+036F).
   key = key.normalize('NFD').replace(/[̀-ͯ]/g, '');
   key = key.toLowerCase();
-  // Tout caractère non alphanumérique → underscore.
   key = key.replace(/[^a-z0-9]+/g, '_');
   key = key.replace(/^_+|_+$/g, '');
 
@@ -31,10 +24,34 @@ export function buildKey(value: string): string {
   return key || 'key';
 }
 
-/**
- * Alloue des clés uniques en désambiguïsant les collisions (`base`, `base_2`, …).
- * Peut être amorcé avec des clés déjà prises (merge incrémental).
- */
+function toPascalIdentifier(raw: string): string {
+  const cleaned = raw
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/^\[|\]$/g, '')
+    .replace(/[^A-Za-z0-9]+/g, ' ')
+    .trim();
+  if (!cleaned) return 'Common';
+  return cleaned
+    .split(/\s+/)
+    .map(part => part[0].toUpperCase() + part.slice(1))
+    .join('');
+}
+
+/** Dérive un nom de namespace propre depuis le chemin d'un fichier composant/route. */
+export function namespaceFromFilePath(filePath: string): string {
+  const stem = basename(filePath, extname(filePath));
+  if (!GENERIC_FILENAMES.has(stem.toLowerCase())) {
+    return toPascalIdentifier(stem);
+  }
+  const parent = basename(dirname(filePath));
+  if (parent && !parent.startsWith('[') && parent !== 'app' && parent !== 'src' && parent !== '.') {
+    return toPascalIdentifier(parent);
+  }
+  return toPascalIdentifier(stem);
+}
+
+/** Alloue des clés uniques en désambiguïsant les collisions (`base`, `base_2`, …). */
 export class KeyAllocator {
   private readonly used: Set<string>;
 
@@ -42,9 +59,9 @@ export class KeyAllocator {
     this.used = new Set(reservedKeys);
   }
 
-  /** Renvoie une clé unique dérivée de `value`. */
-  allocate(value: string): string {
-    const base = buildKey(value);
+  allocate(value: string, namespace?: string): string {
+    const leaf = buildKey(value);
+    const base = namespace ? `${namespace}.${leaf}` : leaf;
     if (!this.used.has(base)) {
       this.used.add(base);
       return base;

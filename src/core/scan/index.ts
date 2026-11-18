@@ -5,9 +5,8 @@
  * par `src/adapters/fs`, qui fournit ici le contenu déjà lu.
  */
 
-import type { SourceFile } from 'ts-morph';
 import type { ExtractedString, Runtime } from '../types.js';
-import { extractStrings, detectRuntime } from '../extraction/index.js';
+import { extractStrings, detectRuntime, type SourceFile } from '../extraction/index.js';
 import { getIgnoreReason, type FilterOptions, type IgnoreReason } from '../filters/index.js';
 import { parseSource, getSyntaxErrors } from '../extraction/parse.js';
 import { collectCatalogReferences, type CatalogReferences } from './references.js';
@@ -40,8 +39,7 @@ export function scanSourceFile(
 ): FileScanResult {
   const syntaxErrors = getSyntaxErrors(sourceFile);
   const runtime = detectRuntime(sourceFile);
-  // Arbre partiel : l'extraction ressortirait vide ou fausse. On s'arrête ici.
-  if (syntaxErrors.length > 0)
+  if (syntaxErrors.length > 0) {
     return {
       strings: [],
       ignored: [],
@@ -49,12 +47,13 @@ export function scanSourceFile(
       syntaxErrors,
       references: { literals: [], dynamic: true },
     };
+  }
 
   const strings: ExtractedString[] = [];
   const ignored: IgnoredString[] = [];
 
   for (const candidate of extractStrings(sourceFile, file)) {
-    const reason = getIgnoreReason(candidate.value, options);
+    const reason = getIgnoreReason(candidate.value, { ...options, kind: candidate.kind });
     if (reason) {
       ignored.push({
         value: candidate.value,

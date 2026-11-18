@@ -1,15 +1,13 @@
 /**
  * Commande `sync` — met à jour les catalogues et traduit le manquant.
  *
- * Par défaut, ne modifie jamais le code source (modèle zéro-mutation). Avec
- * `write: true`, câble en plus mécaniquement les strings `safe` en `t()` —
- * voir `pipeline/write.ts` pour les garanties de sûreté. Le framework détecté
- * détermine les imports next-intl ou react-i18next injectés.
+ * Par défaut, ne modifie jamais le code source. Avec `write: true`, câble en plus
+ * mécaniquement les strings `safe` en `t()` (avec sauvegarde `.backup` sauf `noBackup`).
  */
 
 import { loadConfig } from '../config/index.js';
-import { loadEnv, getApiKey } from '../utils/env.js';
-import { createProvider } from '../adapters/translation/index.js';
+import { resolveProjectApiKey } from '../utils/env.js';
+import { createProvider, type TranslationProvider } from '../adapters/translation/index.js';
 import { detectProject } from '../adapters/project/index.js';
 import { runSync, type SyncReport } from '../pipeline/sync.js';
 import { runWrite, type WriteReport } from '../pipeline/write.js';
@@ -19,12 +17,13 @@ import { withProjectLock } from '../adapters/fs/lock.js';
 
 export interface RunSyncCommandOptions {
   projectRoot: string;
-  /** Câble mécaniquement les strings safe en `t()` (opt-in). */
   write?: boolean;
-  /** Avec `write`, calcule les changements sans les écrire sur disque. */
   dryRun?: boolean;
-  /** Retire du catalogue les clés dont le texte a disparu du code (opt-in). */
   prune?: boolean;
+  /** N'écrit pas de fichier `.backup` lors de `--write`. */
+  noBackup?: boolean;
+  /** Provider injectable (tests ou intégrations programmatiques). */
+  provider?: TranslationProvider;
 }
 
 export interface RunSyncCommandResult {
@@ -40,22 +39,22 @@ export async function runSyncCommand(
 }
 
 async function syncLocked(options: RunSyncCommandOptions): Promise<RunSyncCommandResult> {
-  const { projectRoot, write = false, dryRun = false, prune = false } = options;
+  const { projectRoot, write = false, dryRun = false, prune = false, noBackup = false } = options;
   const config = await loadConfig(projectRoot);
+  const preResolvedKey = options.provider
+    ? undefined
+    : await resolveProjectApiKey(projectRoot, config.apiKeyEnv);
 
-  loadEnv(projectRoot);
-
-  // Fabrique plutôt que provider : un projet déjà entièrement traduit se
-  // synchronise sans clé API, ce qui débloque la CI et les contributeurs.
-  const provider = () => {
-    const apiKey = getApiKey(config.apiKeyEnv);
-    if (!apiKey) {
-      throw new Error(
-        `Clé API introuvable (${config.apiKeyEnv}). Ajoutez-la dans .env.local ou lancez "init".`,
-      );
-    }
-    return createProvider(config.provider, apiKey);
-  };
+  const provider =
+    options.provider ??
+    (() => {
+      if (!preResolvedKey) {
+        throw new Error(
+          `Clé API introuvable (${config.apiKeyEnv}). Ajoutez-la dans .env.local ou lancez "init".`,
+        );
+      }
+      return createProvider(config.provider, preResolvedKey, { model: config.model });
+    });
 
   const report = await runSync({
     projectRoot,
@@ -65,6 +64,10 @@ async function syncLocked(options: RunSyncCommandOptions): Promise<RunSyncComman
     messagesDir: config.messagesDir,
     ignore: config.ignore,
     rootDirs: config.rootDirs,
+    catalogFormat: config.catalogFormat,
+    namespaceByFile: config.namespaceByFile,
+    tone: config.tone,
+    glossary: config.glossary,
     prune,
     dryRun,
   });
@@ -75,10 +78,12 @@ async function syncLocked(options: RunSyncCommandOptions): Promise<RunSyncComman
   if (write) {
     const project = await detectProject(projectRoot);
     writeReport = await runWrite({
+      projectRoot,
       strings: report.strings,
       keyMap: report.keyMap,
       fileRuntimes: report.fileRuntimes,
       dryRun,
+      noBackup,
       framework: project.framework,
     });
     renderWriteReport(projectRoot, writeReport);

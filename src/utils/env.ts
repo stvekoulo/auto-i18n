@@ -1,38 +1,83 @@
-import { readFile, writeFile, access, chmod } from 'fs/promises';
-import { join } from 'path';
-import { config as dotenvConfig } from 'dotenv';
+import { readFileSync } from 'node:fs';
+import { readFile, writeFile, access, chmod } from 'node:fs/promises';
+import { join } from 'node:path';
+import { parseEnv } from 'node:util';
 
+function parseEnvContent(raw: string): Record<string, string> {
+  const clean = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  const parsed = parseEnv(clean);
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(parsed)) {
+    if (typeof v === 'string') out[k] = v;
+  }
+  return out;
+}
+
+/**
+ * Lit `.env` puis `.env.local` en mémoire sans muter `process.env`
+ * (évite toute fuite de secret d'un projet vers un autre dans un même processus).
+ */
+export async function readProjectEnv(projectRoot: string): Promise<Record<string, string>> {
+  const merged: Record<string, string> = {};
+  for (const name of ['.env', '.env.local']) {
+    try {
+      const raw = await readFile(join(projectRoot, name), 'utf-8');
+      Object.assign(merged, parseEnvContent(raw));
+    } catch {
+      // fichier absent — ignoré
+    }
+  }
+  return merged;
+}
+
+/** Résout une clé API depuis `process.env` (prioritaire en CI), sinon `.env.local` / `.env`. */
+export async function resolveProjectApiKey(
+  projectRoot: string,
+  envVar: string,
+): Promise<string | undefined> {
+  if (process.env[envVar]) return process.env[envVar];
+  const localEnv = await readProjectEnv(projectRoot);
+  return localEnv[envVar] || undefined;
+}
+
+/** Compatibilité : charge `.env.local` et `.env` dans `process.env` sans écraser l'existant. */
 export function loadEnv(projectRoot: string): void {
-  // `quiet` : depuis dotenv 17, le chargement annonce chaque fichier lu et
-  // affiche des conseils publicitaires. Ce bruit n'a rien à faire dans la
-  // sortie d'un CLI dont on lit les rapports.
-  dotenvConfig({ path: join(projectRoot, '.env.local'), quiet: true });
-  dotenvConfig({ path: join(projectRoot, '.env'), quiet: true });
+  for (const name of ['.env.local', '.env']) {
+    try {
+      const raw = readFileSync(join(projectRoot, name), 'utf-8');
+      for (const [k, v] of Object.entries(parseEnvContent(raw))) {
+        if (process.env[k] === undefined) process.env[k] = v;
+      }
+    } catch {
+      // fichier absent
+    }
+  }
 }
 
 export function getApiKey(envVar: string): string | undefined {
   return process.env[envVar];
 }
 
-/** Échappe une chaîne destinée à être injectée dans une expression régulière. */
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function serializeEnvValue(value: string): string {
+  if (/[\r\n\0]/.test(value)) {
+    throw new Error('Clé API invalide : saut de ligne ou caractère nul interdit.');
+  }
+  return /[#"'\s]/.test(value) ? JSON.stringify(value) : value;
+}
+
 /**
- * Écrit (ou met à jour) `envVar` dans `.env.local`.
- *
- * `envVar` vient de `auto-i18n.config.json`, donc d'une source modifiable : il
- * est échappé avant d'entrer dans une expression régulière, et la valeur est
- * insérée via une fonction de remplacement pour neutraliser les motifs `$&`.
- * Le fichier créé reçoit le mode 0600 puisqu'il contient une clé API ; les
- * permissions d'un `.env.local` préexistant ne sont pas modifiées.
+ * Écrit (ou met à jour) `envVar` dans `.env.local` (mode `0600` à la création).
  */
 export async function saveApiKeyToEnv(
   projectRoot: string,
   envVar: string,
   value: string,
 ): Promise<void> {
+  const serialized = serializeEnvValue(value);
   const envPath = join(projectRoot, '.env.local');
   let content = '';
   let existed = true;
@@ -44,7 +89,7 @@ export async function saveApiKeyToEnv(
     existed = false;
   }
 
-  const line = `${envVar}=${value}`;
+  const line = `${envVar}=${serialized}`;
   const regex = new RegExp(`^${escapeRegExp(envVar)}=.*$`, 'm');
 
   if (regex.test(content)) {
@@ -56,7 +101,6 @@ export async function saveApiKeyToEnv(
   await writeFile(envPath, content, { encoding: 'utf-8', mode: 0o600 });
 
   if (!existed) {
-    // Sans effet réel sur Windows, mais indispensable sur un runner CI POSIX.
     await chmod(envPath, 0o600).catch(() => undefined);
   }
 }
@@ -73,13 +117,7 @@ export async function ensureGitignore(projectRoot: string, entries: string[]): P
   }
 
   const lines = content.split('\n').map(l => l.trim());
-  const added: string[] = [];
-
-  for (const entry of entries) {
-    if (!lines.includes(entry)) {
-      added.push(entry);
-    }
-  }
+  const added = entries.filter(entry => !lines.includes(entry));
 
   if (added.length > 0) {
     const suffix =

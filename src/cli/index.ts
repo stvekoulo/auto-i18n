@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { readFileSync } from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 import { logger } from '../utils/logger.js';
-import { loadEnv, getApiKey } from '../utils/env.js';
+import { resolveProjectApiKey } from '../utils/env.js';
 import {
   askSourceLocale,
   askTargetLocales,
@@ -15,7 +15,10 @@ import {
 import { PROVIDER_API_KEY_ENV } from '../config/index.js';
 import { runInit } from '../commands/init.js';
 import { runSyncCommand } from '../commands/sync.js';
-import { runCheck } from '../commands/check.js';
+import { runCheck, type CheckOutputFormat } from '../commands/check.js';
+import { runAddLocale } from '../commands/add-locale.js';
+import { runCleanBackups, runRestoreBackups } from '../commands/backups.js';
+import { startWatchSync } from '../commands/watch.js';
 import { createProvider } from '../adapters/translation/index.js';
 
 function readVersion(): string {
@@ -27,13 +30,6 @@ function readVersion(): string {
   }
 }
 
-/**
- * Termine la commande sans couper la sortie.
- *
- * `process.exit` tue le processus avant que stdout ne soit vidé quand il est
- * redirigé vers un tube : `check --json | jq` recevait un JSON tronqué.
- * Positionner le code laisse Node sortir de lui-même, flux vidés.
- */
 function finish(exitCode: number): void {
   process.exitCode = exitCode;
 }
@@ -47,7 +43,9 @@ const program = new Command();
 
 program
   .name('next-auto-i18n')
-  .description('Internationalisation pour projets Next.js App Router (sans réécrire votre code)')
+  .description(
+    'CLI i18n pour Next.js App Router, React/Vite et Expo : extraction, traduction (DeepL/Google/LLM) et câblage sûr',
+  )
   .version(readVersion());
 
 program.addHelpText(
@@ -55,32 +53,30 @@ program.addHelpText(
   `
 Exemples :
   $ next-auto-i18n init                      Mise en place interactive
-  $ next-auto-i18n init --source fr --locale en,es,de
-  $ next-auto-i18n sync                      Met à jour catalogues + traduit le manquant
+  $ next-auto-i18n init --source fr --locale en,es --provider gemini
+  $ next-auto-i18n sync                      Met à jour catalogues + traduit le manquant (et sources modifiées)
   $ next-auto-i18n sync --write --dry-run    Aperçu du câblage automatique des strings sûres
-  $ next-auto-i18n sync --write              Câble les strings sûres en t() (avec .backup)
-  $ next-auto-i18n sync --prune              Retire du catalogue les clés dont le texte a disparu du code
-  $ next-auto-i18n check                     Diagnostic (CI) — code de sortie ≠ 0 si travail en attente
-  $ next-auto-i18n check --json              Rapport machine pour scripts/CI
-
-Documentation : https://github.com/stvekoulo/auto-i18n#readme`,
+  $ next-auto-i18n sync --write --no-backup  Câble sans créer de fichiers .backup
+  $ next-auto-i18n sync --watch              Synchronise en continu à chaque sauvegarde
+  $ next-auto-i18n add-locale de,it          Ajoute de nouvelles langues et les traduit
+  $ next-auto-i18n restore                   Restaure les fichiers depuis leurs sauvegardes .backup
+  $ next-auto-i18n clean-backups             Supprime les fichiers .backup
+  $ next-auto-i18n check --format github     Diagnostic CI avec annotations GitHub Actions`,
 );
 
 program
   .command('init')
   .description(
-    "Installe l'infra next-intl, génère et traduit les catalogues, et produit le guide d'intégration",
+    "Installe l'infra i18n (Next.js, React/Vite ou Expo), génère et traduit les catalogues, et écrit le guide",
   )
   .option('--source <locale>', 'Langue source (code ISO)')
   .option('--locale <locales>', 'Langues cibles (séparées par des virgules)')
-  .option('--provider <name>', 'Provider de traduction (deepl, google)')
+  .option('--provider <name>', 'Provider (deepl, google, openai, gemini, anthropic)')
   .option('--guide <path>', "Chemin du guide d'intégration", 'i18n-guide.md')
   .action(
     async (options: { source?: string; locale?: string; provider?: string; guide?: string }) => {
       const projectRoot = process.cwd();
       try {
-        loadEnv(projectRoot);
-
         const sourceLocale = options.source?.trim().toLowerCase() ?? (await askSourceLocale());
         const targetLocales = options.locale
           ? parseLocales(options.locale, sourceLocale)
@@ -93,7 +89,8 @@ program
 
         const provider = options.provider?.trim().toLowerCase() ?? (await askProvider());
         const apiKeyEnv = PROVIDER_API_KEY_ENV[provider] ?? PROVIDER_API_KEY_ENV.deepl;
-        const apiKey = getApiKey(apiKeyEnv) ?? (await askApiKey(provider));
+        const apiKey =
+          (await resolveProjectApiKey(projectRoot, apiKeyEnv)) ?? (await askApiKey(provider));
 
         const { exitCode } = await runInit({
           projectRoot,
@@ -116,24 +113,61 @@ program
 program
   .command('sync')
   .description('Rescanne le projet, met à jour les catalogues et traduit le manquant')
-  .option(
-    '--write',
-    'Câble en plus les strings sûres en t() (composants client, ou serveur déjà async)',
-    false,
-  )
-  .option(
-    '--dry-run',
-    'Aperçu sans écriture ni appel API (avec --write : affiche aussi le diff)',
-    false,
-  )
+  .option('--write', 'Câble en plus les strings sûres en t()', false)
+  .option('--no-backup', 'Avec --write : ne crée pas de fichier .backup')
+  .option('--dry-run', 'Aperçu sans écriture ni appel API', false)
   .option('--prune', 'Retire du catalogue les clés dont le texte a disparu du code', false)
-  .action(async (options: { write?: boolean; dryRun?: boolean; prune?: boolean }) => {
+  .option('--watch', 'Surveille les fichiers et synchronise en continu', false)
+  .action(
+    async (options: {
+      write?: boolean;
+      backup?: boolean;
+      dryRun?: boolean;
+      prune?: boolean;
+      watch?: boolean;
+    }) => {
+      const projectRoot = process.cwd();
+      const noBackup = options.backup === false;
+      try {
+        const { exitCode } = await runSyncCommand({
+          projectRoot,
+          write: options.write,
+          dryRun: options.dryRun,
+          prune: options.prune,
+          noBackup,
+        });
+        if (options.watch && !options.dryRun) {
+          const handle = await startWatchSync({
+            projectRoot,
+            write: options.write,
+            noBackup,
+          });
+          process.once('SIGINT', () => handle.close());
+          process.once('SIGTERM', () => handle.close());
+          return;
+        }
+        finish(exitCode);
+      } catch (err) {
+        fail(err);
+      }
+    },
+  );
+
+program
+  .command('add-locale')
+  .description('Ajoute une ou plusieurs langues cibles et traduit les catalogues correspondants')
+  .argument('<locales>', 'Code(s) de langue séparés par des virgules (ex: es,de)')
+  .option('--dry-run', 'Aperçu sans écriture ni appel API', false)
+  .action(async (rawLocales: string, options: { dryRun?: boolean }) => {
     try {
-      const { exitCode } = await runSyncCommand({
+      const locales = rawLocales
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+      const { exitCode } = await runAddLocale({
         projectRoot: process.cwd(),
-        write: options.write,
+        locales,
         dryRun: options.dryRun,
-        prune: options.prune,
       });
       finish(exitCode);
     } catch (err) {
@@ -142,12 +176,43 @@ program
   });
 
 program
-  .command('check')
-  .description('Diagnostic read-only (CI) : strings non cataloguées et traductions manquantes')
-  .option('--json', 'Sortie JSON', false)
-  .action(async (options: { json?: boolean }) => {
+  .command('restore')
+  .description('Restaure les fichiers modifiés depuis leur sauvegarde .backup initiale')
+  .option('--dry-run', 'Liste les restaurations prévues sans modifier le disque', false)
+  .action(async (options: { dryRun?: boolean }) => {
     try {
-      const { exitCode } = await runCheck({ projectRoot: process.cwd(), json: options.json });
+      await runRestoreBackups({ projectRoot: process.cwd(), dryRun: options.dryRun });
+      finish(0);
+    } catch (err) {
+      fail(err);
+    }
+  });
+
+program
+  .command('clean-backups')
+  .description('Supprime tous les fichiers .backup du projet')
+  .option('--dry-run', 'Liste les fichiers .backup sans les supprimer', false)
+  .action(async (options: { dryRun?: boolean }) => {
+    try {
+      await runCleanBackups({ projectRoot: process.cwd(), dryRun: options.dryRun });
+      finish(0);
+    } catch (err) {
+      fail(err);
+    }
+  });
+
+program
+  .command('check')
+  .description('Diagnostic read-only (CI) : strings non cataloguées, obsolètes et manquantes')
+  .option('--json', 'Sortie JSON', false)
+  .option('--format <format>', 'Format de sortie (text, json, github)')
+  .action(async (options: { json?: boolean; format?: CheckOutputFormat }) => {
+    try {
+      const { exitCode } = await runCheck({
+        projectRoot: process.cwd(),
+        json: options.json,
+        format: options.format,
+      });
       finish(exitCode);
     } catch (err) {
       fail(err);
@@ -162,12 +227,12 @@ program
   .option('--json', 'Sortie JSON', false)
   .action(async (options: { provider: string; source: boolean; json: boolean }) => {
     try {
-      loadEnv(process.cwd());
       const envName = PROVIDER_API_KEY_ENV[options.provider];
-      const key = envName ? getApiKey(envName) : undefined;
+      const key = envName ? await resolveProjectApiKey(process.cwd(), envName) : undefined;
       const provider = createProvider(options.provider, key ?? '');
-      if (!provider.listLanguages)
+      if (!provider.listLanguages) {
         throw new Error('Ce provider ne propose pas la découverte des langues.');
+      }
       const languages = await provider.listLanguages(options.source ? 'source' : 'target');
       console.log(
         options.json

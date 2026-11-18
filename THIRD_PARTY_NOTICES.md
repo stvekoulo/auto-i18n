@@ -1,9 +1,7 @@
-# Dépendances embarquées
+# Dépendances tierces
 
-L'artefact npm de release embarque **ts-morph 28.0.0** et sa fermeture de dépendances résolue à partir du verrou de développement. Les fichiers de licence et les mentions d'auteur fournis par chaque paquet sont conservés dans son répertoire sous `node_modules`.
+Depuis la version **3.0.0**, `next-auto-i18n` n'embarque plus aucune copie modifiée ou figée de dépendances dans son tarball (`bundledDependencies` supprimé).
 
-Dans la copie embarquée de **@ts-morph/common 0.29.0**, une adaptation est appliquée uniquement au manifeste `package.json` : la dépendance `minimatch` est passée de `^10.0.1` à `^11.0.4`. Le code de ts-morph et de @ts-morph/common est inchangé. La version corrigée est embarquée avec ses propres dépendances et fichiers de licence ; l'installation et les usages du parseur et du scaffold sont exercés dans les tests consommateurs.
+L'analyse syntaxique repose directement sur le compilateur officiel **[typescript](https://github.com/microsoft/TypeScript)** (licence Apache-2.0, zéro dépendance transitive), et la lecture des variables `.env` ainsi que le filtrage glob s'appuient sur les primitives natives de **Node.js 22.13+** (`node:util` et `node:path`).
 
-Cette adaptation reste dans le répertoire temporaire d'assemblage. Le paquet d'origine installé pour développer le dépôt n'est pas modifié. Les autres dépendances non embarquées restent décrites dans le manifeste npm publié.
-
-Sources amont : [ts-morph](https://github.com/dsherret/ts-morph), [minimatch](https://github.com/isaacs/minimatch).
+Les licences des dépendances déclarées dans `package.json` (`@formatjs/icu-messageformat-parser`, `@inquirer/prompts`, `chalk`, `commander`, `diff`, `typescript`) sont distribuées par leurs paquets npm respectifs lors d'une installation standard.

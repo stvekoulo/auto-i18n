@@ -77,7 +77,7 @@ export function renderWriteReport(projectRoot: string, report: WriteReport): voi
     }
   }
 
-  if (!report.dryRun && changed.length > 0) {
+  if (!report.dryRun && !report.noBackup && changed.length > 0) {
     logger.blank();
     logger.dim('  Chaque fichier modifié a une sauvegarde .backup à côté.');
   }

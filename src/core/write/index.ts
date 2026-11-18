@@ -1,34 +1,27 @@
 /**
  * Calcul des modifications du codemod `sync --write` — pur (AST → édits texte).
  *
- * Ne câble que les strings `safety: 'safe'`, et seulement dans une fonction
- * "hôte" identifiable sans ambiguïté (composant PascalCase, hook `useXxx`, ou
- * export par défaut) :
- * - Composant client (`'use client'`) → toujours éligible, `useTranslations()`.
- * - Composant serveur → seulement si la fonction hôte est déjà `async` (on ne
- *   transforme jamais une fonction sync en async : trop risqué pour les types).
- * - Un identifiant `t` déjà présent qui ne vient pas de `useTranslations`/
- *   `getTranslations` bloque le fichier (collision) plutôt que de risquer un écrasement.
- *
- * Les édits sont des remplacements de plage `[start, end)` sur le texte source
- * d'origine (jamais de mutation ts-morph en direct) : l'application est une
- * simple découpe de chaîne, appliquée de la fin vers le début.
+ * Ne câble que les strings `safety: 'safe'`, dans une fonction hôte identifiable
+ * (composant PascalCase, hook `useXxx`, `generateMetadata`, ou export par défaut).
+ * Supporte aussi l'expansion sûre des fonctions fléchées à corps concis.
  */
 
-import { Node, type SourceFile } from 'ts-morph';
+import ts from 'typescript';
 import {
   formatTranslationArgs,
   type ExtractedString,
   type Runtime,
   type TranslationFramework,
 } from '../types.js';
-import { extractStringNodes } from '../extraction/index.js';
+import { extractStringNodes, type SourceFile } from '../extraction/index.js';
+import { getJsxRawTrimBounds } from '../extraction/jsx-text.js';
 import {
   hasBindingConflict,
   findTopLevelTDeclaration,
-  isValidTSource,
+  inspectTSource,
   type HostFn,
 } from './bindings.js';
+import { buildImportEdit, type WriteKind } from './imports.js';
 
 export interface WriteEdit {
   start: number;
@@ -50,49 +43,48 @@ export interface WriteFileResult {
   skipped: WriteSkip[];
 }
 
-function isFunctionLike(node: Node): node is HostFn {
+function isFunctionLikeHost(node: ts.Node): node is HostFn {
   return (
-    Node.isFunctionDeclaration(node) ||
-    Node.isArrowFunction(node) ||
-    Node.isFunctionExpression(node)
+    ts.isFunctionDeclaration(node) || ts.isArrowFunction(node) || ts.isFunctionExpression(node)
   );
 }
 
-function hostName(fn: Node): string | undefined {
-  if (Node.isFunctionDeclaration(fn) || Node.isFunctionExpression(fn)) {
-    const name = fn.getName();
-    if (name) return name;
+function isAsyncFn(fn: HostFn): boolean {
+  return Boolean(fn.modifiers?.some(m => m.kind === ts.SyntaxKind.AsyncKeyword));
+}
+
+function hostName(fn: HostFn): string | undefined {
+  if ((ts.isFunctionDeclaration(fn) || ts.isFunctionExpression(fn)) && fn.name) {
+    return fn.name.text;
   }
-  const parent = fn.getParent();
-  if (parent && Node.isVariableDeclaration(parent)) {
-    const nameNode = parent.getNameNode();
-    if (Node.isIdentifier(nameNode)) return nameNode.getText();
+  const parent = fn.parent;
+  if (parent && ts.isVariableDeclaration(parent) && ts.isIdentifier(parent.name)) {
+    return parent.name.text;
   }
   return undefined;
 }
 
-function isDefaultExported(fn: Node): boolean {
-  const parent = fn.getParent();
-  if (parent && Node.isExportAssignment(parent) && !parent.isExportEquals()) return true;
-  if (Node.isFunctionDeclaration(fn) && fn.isDefaultExport()) return true;
+function isDefaultExported(fn: HostFn): boolean {
+  const parent = fn.parent;
+  if (parent && ts.isExportAssignment(parent) && !parent.isExportEquals) return true;
+  if (ts.isFunctionDeclaration(fn)) {
+    return Boolean(fn.modifiers?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword));
+  }
   return false;
 }
 
-function isEligibleHostName(fn: Node): boolean {
+function isEligibleHostName(fn: HostFn): boolean {
   if (isDefaultExported(fn)) return true;
   const name = hostName(fn);
   if (!name) return false;
-  return /^[A-Z]/.test(name) || /^use[A-Z]/.test(name);
+  return /^[A-Z]/.test(name) || /^use[A-Z]/.test(name) || name === 'generateMetadata';
 }
 
-/** Remonte jusqu'à la fonction hôte éligible la plus proche (ou `null`). */
-function findHostFunction(node: Node): HostFn | null {
-  let current = node.getParent();
+function findHostFunction(node: ts.Node): HostFn | null {
+  let current: ts.Node | undefined = node.parent;
   while (current) {
-    if (isFunctionLike(current) && isEligibleHostName(current)) {
-      return current;
-    }
-    current = current.getParent();
+    if (isFunctionLikeHost(current) && isEligibleHostName(current)) return current;
+    current = current.parent;
   }
   return null;
 }
@@ -100,136 +92,103 @@ function findHostFunction(node: Node): HostFn | null {
 interface HostEligibility {
   eligible: boolean;
   reason?: WriteSkipReason;
-  inject?: { kind: WriteKind };
+  inject?: { kind: WriteKind; concise: boolean };
+  namespace?: string;
 }
-type WriteKind = 'client' | 'server_async' | 'react';
 
 function evaluateHost(
   fn: HostFn | null,
+  sf: ts.SourceFile,
   runtime: Runtime,
   framework: TranslationFramework,
 ): HostEligibility {
-  if (!fn) return { eligible: false, reason: 'no_host' };
+  if (!fn || !fn.body) return { eligible: false, reason: 'no_host' };
+  const concise = !ts.isBlock(fn.body);
+  const reactMode = framework === 'react-i18next' || framework === 'expo';
 
-  const body = fn.getBody();
-  if (!body || !Node.isBlock(body)) return { eligible: false, reason: 'concise_body' };
-
-  const hook =
-    framework === 'react-i18next'
-      ? 'useTranslation'
-      : runtime === 'client'
-        ? 'useTranslations'
-        : 'getTranslations';
-  if (hasBindingConflict(fn, fn.getSourceFile(), hook))
-    return { eligible: false, reason: 't_conflict' };
+  const hook = reactMode
+    ? 'useTranslation'
+    : runtime === 'client'
+      ? 'useTranslations'
+      : 'getTranslations';
+  if (hasBindingConflict(fn, sf, hook)) return { eligible: false, reason: 't_conflict' };
 
   const existing = findTopLevelTDeclaration(fn);
   if (existing) {
-    return isValidTSource(existing, framework)
-      ? { eligible: true }
-      : { eligible: false, reason: 't_conflict' };
+    const inspected = inspectTSource(existing, sf, framework);
+    if (inspected === 'root') return { eligible: true };
+    if (inspected && typeof inspected === 'object') {
+      return { eligible: true, namespace: inspected.namespace };
+    }
+    return { eligible: false, reason: 't_conflict' };
   }
 
-  if (framework === 'react-i18next')
-    return fn.isAsync()
+  if (reactMode) {
+    return isAsyncFn(fn)
       ? { eligible: false, reason: 'no_host' }
-      : { eligible: true, inject: { kind: 'react' } };
-  if (runtime === 'client') return { eligible: true, inject: { kind: 'client' } };
+      : { eligible: true, inject: { kind: 'react', concise } };
+  }
+  if (runtime === 'client') return { eligible: true, inject: { kind: 'client', concise } };
 
-  if (!fn.isAsync()) return { eligible: false, reason: 'server_not_async' };
-  return { eligible: true, inject: { kind: 'server_async' } };
+  if (!isAsyncFn(fn)) return { eligible: false, reason: 'server_not_async' };
+  return { eligible: true, inject: { kind: 'server_async', concise } };
 }
 
-function buildReplacement(info: ExtractedString, key: string, node: Node): string {
+function buildReplacement(info: ExtractedString, key: string, node: ts.Node): string {
   const literalKey = JSON.stringify(key);
   if (info.kind === 'template' && info.variables && info.variables.length > 0) {
     return `t(${literalKey}, { ${formatTranslationArgs(info.variables)} })`;
   }
   if (info.kind === 'jsx-attribute') {
     const call = `t(${literalKey})`;
-    const parent = node.getParent();
-    return parent && Node.isJsxExpression(parent) ? call : `{${call}}`;
+    return node.parent && ts.isJsxExpression(node.parent) ? call : `{${call}}`;
   }
   if (info.kind === 'jsx-text') return `{t(${literalKey})}`;
   return `t(${literalKey})`;
 }
 
-function buildStringEdit(info: ExtractedString, node: Node, key: string): WriteEdit {
-  if (info.kind === 'jsx-text') {
-    const rawText = node.getText();
-    const offset = rawText.indexOf(info.value);
-    const start = node.getStart() + Math.max(offset, 0);
-    return { start, end: start + info.value.length, replacement: `{t(${JSON.stringify(key)})}` };
+function buildStringEdit(
+  sf: ts.SourceFile,
+  info: ExtractedString,
+  node: ts.Node,
+  key: string,
+): WriteEdit {
+  if (info.kind === 'jsx-text' && ts.isJsxText(node)) {
+    const { start, end } = getJsxRawTrimBounds(sf, node);
+    return { start, end, replacement: `{t(${JSON.stringify(key)})}` };
   }
   return {
-    start: node.getStart(),
+    start: node.getStart(sf),
     end: node.getEnd(),
     replacement: buildReplacement(info, key, node),
   };
 }
 
-function buildInjectionEdit(host: HostFn, kind: WriteKind): WriteEdit {
+function buildInjectionEdits(
+  sf: ts.SourceFile,
+  host: HostFn,
+  kind: WriteKind,
+  concise: boolean,
+): WriteEdit[] {
   const stmt =
     kind === 'react'
       ? 'const { t } = useTranslation();'
       : kind === 'client'
         ? 'const t = useTranslations();'
         : 'const t = await getTranslations();';
-  const body = host.getBody();
-  if (!body || !Node.isBlock(body)) {
-    throw new Error('invariant: host body must be a Block (checked by evaluateHost)');
+  const body = host.body!;
+  if (!concise && ts.isBlock(body)) {
+    const insertAt = body.getStart(sf) + 1;
+    return [{ start: insertAt, end: insertAt, replacement: `\n  ${stmt}` }];
   }
-  const insertAt = body.getStart() + 1;
-  return { start: insertAt, end: insertAt, replacement: `\n  ${stmt}` };
+  const start = body.getStart(sf);
+  const end = body.getEnd();
+  return [
+    { start, end: start, replacement: `{\n  ${stmt}\n  return (` },
+    { start: end, end, replacement: ');\n}' },
+  ];
 }
 
-function leadingInsertOffset(sourceFile: SourceFile): number {
-  const first = sourceFile.getStatements()[0];
-  if (first && Node.isExpressionStatement(first)) {
-    const expr = first.getExpression();
-    if (Node.isStringLiteral(expr) && expr.getLiteralValue() === 'use client') {
-      return first.getEnd();
-    }
-  }
-  return 0;
-}
-
-function buildImportEdit(sourceFile: SourceFile, kind: WriteKind): WriteEdit | null {
-  const moduleSpecifier =
-    kind === 'react' ? 'react-i18next' : kind === 'client' ? 'next-intl' : 'next-intl/server';
-  const importName =
-    kind === 'react' ? 'useTranslation' : kind === 'client' ? 'useTranslations' : 'getTranslations';
-
-  const existing = sourceFile
-    .getImportDeclarations()
-    .find(d => d.getModuleSpecifierValue() === moduleSpecifier);
-
-  if (existing) {
-    const namedImports = existing.getNamedImports();
-    if (namedImports.some(ni => ni.getName() === importName)) return null;
-    if (namedImports.length > 0) {
-      const last = namedImports[namedImports.length - 1];
-      return { start: last.getEnd(), end: last.getEnd(), replacement: `, ${importName}` };
-    }
-  }
-
-  const firstImport = sourceFile.getImportDeclarations()[0];
-  const insertAt = firstImport ? firstImport.getStart() : leadingInsertOffset(sourceFile);
-  // Après une directive ('use client';) ou tout autre contenu non vide, saute une ligne
-  // avant l'import pour ne pas le coller au texte précédent.
-  const prefix = insertAt > 0 ? '\n' : '';
-  return {
-    start: insertAt,
-    end: insertAt,
-    replacement: `${prefix}import { ${importName} } from '${moduleSpecifier}';\n`,
-  };
-}
-
-/**
- * Calcule les édits du codemod pour un fichier déjà parsé. `keyMap` doit
- * provenir du même `buildSourceCatalog` que la synchronisation en cours
- * (valeur source → clé i18n).
- */
 export function computeWriteEdits(
   sourceFile: SourceFile,
   file: string,
@@ -247,13 +206,13 @@ export function computeWriteEdits(
   let written = 0;
 
   for (const { info, node } of safeNodes) {
-    const key = keyMap.get(info.value);
-    if (!key) continue;
+    const fullKey = keyMap.get(info.value);
+    if (!fullKey) continue;
 
     const host = findHostFunction(node);
     let eligibility = hostEligibility.get(host);
     if (!eligibility) {
-      eligibility = evaluateHost(host, runtime, framework);
+      eligibility = evaluateHost(host, sourceFile, runtime, framework);
       hostEligibility.set(host, eligibility);
     }
     if (!eligibility.eligible || !host) {
@@ -261,12 +220,29 @@ export function computeWriteEdits(
       continue;
     }
 
-    edits.push(buildStringEdit(info, node, key));
+    let localKey = fullKey;
+    if (eligibility.namespace) {
+      const prefix = `${eligibility.namespace}.`;
+      if (!fullKey.startsWith(prefix)) {
+        skipped.push({ value: info.value, line: info.line, reason: 't_conflict' });
+        continue;
+      }
+      localKey = fullKey.slice(prefix.length);
+    }
+
+    edits.push(buildStringEdit(sourceFile, info, node, localKey));
     written++;
 
     if (eligibility.inject && !injectedHosts.has(host)) {
       injectedHosts.add(host);
-      edits.push(buildInjectionEdit(host, eligibility.inject.kind));
+      edits.push(
+        ...buildInjectionEdits(
+          sourceFile,
+          host,
+          eligibility.inject.kind,
+          eligibility.inject.concise,
+        ),
+      );
       importKind = eligibility.inject.kind;
     }
   }
@@ -279,9 +255,16 @@ export function computeWriteEdits(
   return { edits, written, skipped };
 }
 
-/** Applique des édits `[start, end)` (non chevauchants) à un texte source. */
+/** Applique des édits `[start, end)` non chevauchants à un texte source. */
 export function applyEdits(content: string, edits: WriteEdit[]): string {
-  const sorted = [...edits].sort((a, b) => b.start - a.start);
+  const sorted = [...edits].sort((a, b) => b.start - a.start || b.end - a.end);
+  for (let i = 1; i < sorted.length; i++) {
+    if (sorted[i].end > sorted[i - 1].start) {
+      throw new Error(
+        `Chevauchement d'édits détecté ([${sorted[i].start}, ${sorted[i].end}) vs [${sorted[i - 1].start}, ${sorted[i - 1].end})).`,
+      );
+    }
+  }
   let result = content;
   for (const edit of sorted) {
     result = result.slice(0, edit.start) + edit.replacement + result.slice(edit.end);

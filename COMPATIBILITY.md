@@ -1,8 +1,8 @@
 # Compatibilité des frameworks
 
-## Versions vérifiées le 3 novembre 2026
+## Versions vérifiées le 18 novembre 2026
 
-Le tarball de `next-auto-i18n` 2.2.0 a été installé dans deux applications indépendantes sous Windows / Node 26.13. Les traductions de test sont injectées localement ; aucun abonnement ou appel facturé n’est nécessaire pour reproduire ces essais.
+Le tarball de `next-auto-i18n` 3.0.0 a été installé dans deux applications indépendantes sous Windows / Node 26.13. Les traductions de test sont injectées localement ; aucun abonnement ou appel facturé n’est nécessaire pour reproduire ces essais.
 
 | Application        | Versions                                                                                    | Vérification                                                                                                                      |
 | ------------------ | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
@@ -49,6 +49,6 @@ Le script écrit `.tmp/compatibility-report.json` et conserve les applications g
 - **App Router :** le layout de locale et `NextIntlClientProvider` restent à intégrer dans l’application. Le guide indique les opérations attendues.
 - **React/Vite :** `--write` injecte `useTranslation()` et réutilise un `{t}` sans namespace lorsque son origine est prouvable. Les composants `async`, les scopes ambigus et les corps fléchés sans bloc restent au guide.
 - **Catalogues :** format JSON à plat. ICU complet côté next-intl ; interpolation simple `{name}` côté scaffold React. Les pluriels natifs i18next demandent une adaptation des clés.
-- **Distribution :** l’artefact de release embarque ts-morph et sa fermeture de dépendances résolue, dont minimatch corrigé. Les tests consommateurs vérifient la version effectivement chargée ; le dépôt conserve un verrou npm standard pour son installation de développement.
+- **Distribution :** le parseur repose directement sur `typescript` (zéro dépendance transitive). Les tests consommateurs vérifient l’absence de vulnérabilité `npm audit` et le fonctionnement réel des workers.
 
 Sources : [convention Proxy de Next.js](https://nextjs.org/docs/app/api-reference/file-conventions/proxy), [intégration App Router de next-intl](https://next-intl.dev/docs/getting-started/app-router), [documentation Vite](https://vite.dev/guide/).

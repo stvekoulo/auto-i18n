@@ -1,14 +1,7 @@
 /**
  * Pipeline de scan : collecte les fichiers (adapter fs), les scanne, puis
- * agrège le résultat.
- *
- * Le scan de chaque fichier est indépendant (aucun état partagé), ce qui
- * autorise deux régimes :
- * - petit projet : concurrence `async` bornée sur le thread principal ;
- * - gros projet : un pool de workers, parce que le parsing est gourmand en CPU
- *   et qu'une concurrence `async` ne le répartit sur aucun cœur supplémentaire.
- *
- * Le choix est automatique et le résultat identique dans les deux cas.
+ * agrège le résultat. Inclut aussi un scan différentiel des dossiers hors `rootDirs`
+ * pour garantir la parité de détection des références entre `check` et `sync --prune`.
  */
 
 import { collectSourceFiles, type CollectOptions } from '../adapters/fs/index.js';
@@ -22,17 +15,8 @@ import { mapWithConcurrency } from '../utils/concurrency.js';
 import type { CatalogReferences } from '../core/scan/references.js';
 
 export interface ScanProjectOptions extends CollectOptions, FilterOptions {
-  /** Fichiers traités en parallèle sur le thread principal (défaut 16). */
   concurrency?: number;
-  /**
-   * Workers à démarrer. `0` force le scan sur le thread principal ; absent,
-   * le pool décide selon le nombre de fichiers et de cœurs disponibles.
-   */
   workers?: number;
-  /**
-   * Chemin du worker de scan compilé. Utile aux empaqueteurs qui déplacent les
-   * fichiers émis hors de leur arborescence d'origine ; sinon résolu tout seul.
-   */
   workerPath?: string;
 }
 
@@ -40,37 +24,36 @@ export interface ProjectScanResult {
   references: CatalogReferences;
   strings: ExtractedString[];
   ignored: IgnoredString[];
-  /** Fichiers non parsables (syntaxe invalide) — aucune mutation, juste signalés. */
   parseErrors: string[];
   filesScanned: number;
-  /** Runtime détecté par fichier (chemin absolu → client/server). */
+  scannedFiles: string[];
   fileRuntimes: Map<string, Runtime>;
-  /** Workers réellement utilisés (`0` = scan sur le thread principal). */
   workersUsed: number;
 }
 
 const DEFAULT_CONCURRENCY = 16;
 
-/** Scanne tout le projet et agrège les strings détectées. */
-export async function scanProject(
-  projectRoot: string,
-  options: ScanProjectOptions = {},
-): Promise<ProjectScanResult> {
-  const files = await collectSourceFiles(projectRoot, options);
-
+async function scanFileList(
+  files: string[],
+  options: ScanProjectOptions,
+): Promise<{ outcomes: FileScanOutcome[]; workersUsed: number }> {
   const workerCount = options.workers ?? plannedWorkerCount(files.length);
   let outcomes: FileScanOutcome[] | null = null;
   if (workerCount > 0) {
     outcomes = await scanFilesInWorkers(files, options.blacklist, workerCount, options.workerPath);
   }
-
-  // `null` : pool inapplicable (trop peu de fichiers, pas assez de cœurs, ou
-  // exécution depuis les sources TypeScript sans worker compilé).
   const workersUsed = outcomes === null ? 0 : workerCount;
   outcomes ??= await mapWithConcurrency(files, options.concurrency ?? DEFAULT_CONCURRENCY, file =>
     scanOneFile(file, options.blacklist),
   );
+  return { outcomes, workersUsed };
+}
 
+function aggregateOutcomes(
+  files: string[],
+  outcomes: FileScanOutcome[],
+  workersUsed: number,
+): ProjectScanResult {
   const strings: ExtractedString[] = [];
   const ignored: IgnoredString[] = [];
   const parseErrors: string[] = [];
@@ -96,7 +79,41 @@ export async function scanProject(
     ignored,
     parseErrors,
     filesScanned: files.length,
+    scannedFiles: files,
     fileRuntimes,
     workersUsed,
+  };
+}
+
+/** Scanne tout le projet et agrège les strings détectées. */
+export async function scanProject(
+  projectRoot: string,
+  options: ScanProjectOptions = {},
+): Promise<ProjectScanResult> {
+  const files = await collectSourceFiles(projectRoot, options);
+  const { outcomes, workersUsed } = await scanFileList(files, options);
+  return aggregateOutcomes(files, outcomes, workersUsed);
+}
+
+/**
+ * Scanne uniquement les fichiers applicatifs non couverts par un premier scan
+ * (ex. hors `rootDirs` ou exclus de l'extraction), sans jamais reparser deux fois un fichier.
+ */
+export async function scanAdditionalReferences(
+  projectRoot: string,
+  alreadyScanned: readonly string[],
+): Promise<{ references: CatalogReferences; values: string[]; parseErrors: string[] }> {
+  const seen = new Set(alreadyScanned);
+  const allFiles = await collectSourceFiles(projectRoot, { allRoots: true });
+  const deltaFiles = allFiles.filter(f => !seen.has(f));
+  if (deltaFiles.length === 0) {
+    return { references: { literals: [], dynamic: false }, values: [], parseErrors: [] };
+  }
+  const { outcomes } = await scanFileList(deltaFiles, {});
+  const agg = aggregateOutcomes(deltaFiles, outcomes, 0);
+  return {
+    references: agg.references,
+    values: agg.strings.map(s => s.value),
+    parseErrors: agg.parseErrors,
   };
 }

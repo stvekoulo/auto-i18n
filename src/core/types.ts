@@ -18,16 +18,17 @@ export type Scope = 'component' | 'module';
 /**
  * Indique si un remplacement automatique par `t()` serait sûr.
  * - `safe`   : cas non ambigu, câblage mécanique.
- * - `review` : cas à vérifier humainement (module-scope, JSX inline sensible…).
+ * - `review` : cas à vérifier humainement (module-scope, JSX inline sensible, metadata…).
  */
 export type Safety = 'safe' | 'review';
 
 /** Raison pour laquelle une string est marquée `review`. */
-export type ReviewReason = 'module_scope' | 'jsx_inline_spacing';
+export type ReviewReason = 'module_scope' | 'jsx_inline_spacing' | 'nextjs_metadata';
 
 /** Runtime d'un fichier, déterminé par la directive `'use client'`. */
 export type Runtime = 'client' | 'server';
-export type TranslationFramework = 'next-intl' | 'react-i18next';
+export type TranslationFramework = 'next-intl' | 'react-i18next' | 'expo';
+export type CatalogFormat = 'flat' | 'nested';
 
 export interface SourceLocation {
   file: string;
@@ -39,9 +40,7 @@ export interface SourceLocation {
  * Variable interpolée d'une template literal.
  *
  * `expression` est le code source d'origine (`user.name`), `name` l'argument
- * ICU dérivé (`userName`). Les deux sont nécessaires et distincts : ICU
- * MessageFormat n'accepte qu'un identifiant comme nom d'argument, alors que le
- * codemod doit réinjecter l'expression telle quelle côté appelant.
+ * ICU dérivé (`userName`).
  */
 export interface TemplateVariable {
   /** Expression source, ex. `user.name`. */
@@ -50,13 +49,70 @@ export interface TemplateVariable {
   name: string;
 }
 
+const JS_SHORTHAND_FORBIDDEN = new Set([
+  'break',
+  'case',
+  'catch',
+  'class',
+  'const',
+  'continue',
+  'debugger',
+  'default',
+  'delete',
+  'do',
+  'else',
+  'enum',
+  'export',
+  'extends',
+  'false',
+  'finally',
+  'for',
+  'function',
+  'if',
+  'import',
+  'in',
+  'instanceof',
+  'new',
+  'null',
+  'return',
+  'super',
+  'switch',
+  'this',
+  'throw',
+  'true',
+  'try',
+  'typeof',
+  'var',
+  'void',
+  'while',
+  'with',
+  'yield',
+  'let',
+  'static',
+  'implements',
+  'interface',
+  'package',
+  'private',
+  'protected',
+  'public',
+  'await',
+]);
+
+const VALID_JS_IDENT_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
 /**
  * Rend les arguments d'un appel `t()` : `{ count, userName: user.name }`.
- * Forme abrégée quand le nom ICU et l'expression coïncident.
+ * Forme abrégée seulement si `name === expression` et que c'est un identifiant JS non réservé.
  */
 export function formatTranslationArgs(variables: TemplateVariable[]): string {
   return variables
-    .map(v => (v.name === v.expression ? v.name : `${v.name}: ${v.expression}`))
+    .map(v =>
+      v.name === v.expression &&
+      VALID_JS_IDENT_RE.test(v.name) &&
+      !JS_SHORTHAND_FORBIDDEN.has(v.name)
+        ? v.name
+        : `${v.name}: ${v.expression}`,
+    )
     .join(', ');
 }
 
@@ -67,12 +123,11 @@ export interface ExtractedString extends SourceLocation {
   scope: Scope;
   safety: Safety;
   reviewReason?: ReviewReason;
+  /** Indice syntaxique optionnel (`jsx-attribute:placeholder`, `jsx-text:<button>`) pour les LLM. */
+  contextHint?: string;
   /** Présent pour `kind === 'template'` avec interpolation. */
   variables?: TemplateVariable[];
-  /**
-   * true si une variable interpolée ressemble à un compteur (`count`, `total`…) —
-   * candidat probable à une forme plurielle ICU plutôt qu'un texte figé.
-   */
+  /** true si une variable interpolée ressemble à un compteur (`count`, `total`…). */
   pluralHint?: boolean;
 }
 
@@ -81,16 +136,10 @@ export function occurrenceId(loc: SourceLocation & { value: string }): string {
   return `${loc.file}:${loc.line}:${loc.column}:${loc.value}`;
 }
 
-/**
- * Comparaison par point de code — déterministe sur toute machine.
- *
- * `String#localeCompare` dépend des données ICU embarquées dans le build Node
- * et de la locale de l'hôte : le même catalogue s'ordonnerait différemment en
- * local et en CI, produisant un diff fantôme à chaque exécution.
- */
+/** Comparaison par point de code — déterministe sur toute machine. */
 export function compareCodePoints(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** Catalogue de messages : clé i18n → texte source. */
+/** Catalogue de messages à plat : clé i18n → texte. */
 export type Catalog = Record<string, string>;

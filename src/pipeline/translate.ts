@@ -1,9 +1,6 @@
 /**
  * Pipeline de traduction : pour chaque locale cible, traduit les clés manquantes
- * via un {@link TranslationProvider}, valide les placeholders, et fusionne.
- *
- * Ne touche pas au disque : prend les catalogues en entrée, les renvoie en sortie.
- * Le provider est injecté → testable avec un faux provider.
+ * (et les clés dont le texte source a changé), valide les placeholders, et fusionne.
  */
 
 import type { Catalog } from '../core/types.js';
@@ -12,24 +9,13 @@ import {
   TranslationError,
   type TranslationProvider,
   type TranslationErrorKind,
+  type TranslationTone,
 } from '../adapters/translation/index.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
 import { assertTranslations } from '../adapters/translation/types.js';
 
-/**
- * Locales traduites simultanément. Chaque locale est un aller-retour réseau
- * indépendant : les enchaîner multipliait le temps d'attente par leur nombre.
- * Volontairement bas — le provider impose ses propres quotas.
- */
 const DEFAULT_LOCALE_CONCURRENCY = 4;
 
-/**
- * Provider, ou fabrique de provider.
- *
- * La fabrique n'est appelée que si au moins une locale a des clés manquantes :
- * un projet déjà entièrement traduit n'a alors besoin d'aucune clé API, ce qui
- * permet à un contributeur sans secret de lancer `sync`.
- */
 export type ProviderSource = TranslationProvider | (() => TranslationProvider);
 
 function resolveProvider(source: ProviderSource): TranslationProvider {
@@ -42,8 +28,13 @@ export interface TranslateCatalogsInput {
   sourceCatalog: Catalog;
   targetLocales: string[];
   existingTargets: Record<string, Catalog>;
+  /** Clés existantes dont le texte source a changé et qu'il faut retraduire. */
+  outdatedKeys?: string[];
+  /** Indices UI par clé (`jsx-text:<button>`…) transmis aux providers LLM. */
+  contextsByKey?: Record<string, string>;
+  tone?: TranslationTone;
+  glossary?: Record<string, string>;
   maxRetries?: number;
-  /** Locales traduites en parallèle (défaut 4). */
   concurrency?: number;
   dryRun?: boolean;
 }
@@ -60,6 +51,8 @@ export interface TranslateCatalogsResult {
   byLocale: LocaleTranslation[];
   totalTranslated: number;
   failed: string[];
+  /** Clés qui n'ont pas pu être traduites sur au moins une locale. */
+  failedKeys: string[];
 }
 
 const BASE_DELAY_MS = 500;
@@ -69,32 +62,38 @@ function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/**
- * Attente avant nouvelle tentative.
- *
- * Le délai indiqué par le provider (`Retry-After`) fait autorité. Sinon,
- * croissance exponentielle avec jitter : un backoff fixe de quelques
- * centaines de millisecondes épuise les tentatives avant qu'une fenêtre de
- * rate-limit ne se rouvre, et sans aléa plusieurs locales relancées ensemble
- * repartiraient en même temps.
- */
 export function retryDelayMs(attempt: number, retryAfterMs?: number, random = Math.random): number {
   if (retryAfterMs !== undefined) return Math.min(retryAfterMs, MAX_DELAY_MS);
   const ceiling = Math.min(BASE_DELAY_MS * 2 ** (attempt - 1), MAX_DELAY_MS);
   return ceiling / 2 + random() * (ceiling / 2);
 }
 
+function keysToTranslateFor(
+  sourceCatalog: Catalog,
+  existing: Catalog,
+  outdated: readonly string[],
+): string[] {
+  const missing = missingKeys(sourceCatalog, existing);
+  const extra = outdated.filter(k => Object.hasOwn(sourceCatalog, k));
+  return [...new Set([...missing, ...extra])];
+}
+
 async function translateWithRetry(
   provider: TranslationProvider,
   texts: string[],
-  sourceLocale: string,
-  targetLocale: string,
+  params: {
+    sourceLocale: string;
+    targetLocale: string;
+    tone?: TranslationTone;
+    glossary?: Record<string, string>;
+    contexts?: Array<string | undefined>;
+  },
   maxRetries: number,
 ): Promise<string[]> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      return await provider.translate(texts, { sourceLocale, targetLocale });
+      return await provider.translate(texts, params);
     } catch (error) {
       lastError = error;
       if (!(error instanceof TranslationError) || !error.retryable) throw error;
@@ -112,11 +111,15 @@ async function translateOneLocale(
     sourceLocale: string;
     sourceCatalog: Catalog;
     existing: Catalog;
+    outdated: readonly string[];
+    contextsByKey?: Record<string, string>;
+    tone?: TranslationTone;
+    glossary?: Record<string, string>;
     maxRetries: number;
   },
-): Promise<LocaleTranslation> {
-  const { provider, sourceLocale, sourceCatalog, existing, maxRetries } = input;
-  const keys = missingKeys(sourceCatalog, existing);
+): Promise<LocaleTranslation & { badKeys: string[] }> {
+  const { provider, sourceLocale, sourceCatalog, existing, outdated, maxRetries } = input;
+  const keys = keysToTranslateFor(sourceCatalog, existing, outdated);
 
   if (keys.length === 0) {
     return {
@@ -124,16 +127,23 @@ async function translateOneLocale(
       catalog: mergeTranslations(sourceCatalog, existing, {}),
       translated: 0,
       status: 'up_to_date',
+      badKeys: [],
     };
   }
 
   try {
     const texts = keys.map(k => sourceCatalog[k]);
+    const contexts = input.contextsByKey ? keys.map(k => input.contextsByKey?.[k]) : undefined;
     const translations = await translateWithRetry(
       provider,
       texts,
-      sourceLocale,
-      locale,
+      {
+        sourceLocale,
+        targetLocale: locale,
+        ...(input.tone ? { tone: input.tone } : {}),
+        ...(input.glossary ? { glossary: input.glossary } : {}),
+        ...(contexts ? { contexts } : {}),
+      },
       maxRetries,
     );
     assertTranslations(translations, keys.length, provider.name);
@@ -150,11 +160,6 @@ async function translateOneLocale(
       }
     }
 
-    // Une clé à placeholders incohérents ne doit pas faire perdre les autres
-    // traductions déjà obtenues dans ce même lot. Si tout le lot est mauvais,
-    // on retombe sur l'échec classique (catch ci-dessous) ; sinon les clés
-    // fautives restent simplement manquantes et seront retentées au prochain
-    // sync, sans jeter le reste.
     if (badKeys.length === keys.length) {
       throw new TranslationError(
         `Placeholders incohérents pour "${badKeys[0]}" (${locale}).`,
@@ -168,6 +173,7 @@ async function translateOneLocale(
       catalog: mergeTranslations(sourceCatalog, existing, fresh),
       translated: keys.length - badKeys.length,
       status: 'updated',
+      badKeys,
       ...(badKeys.length > 0
         ? {
             error: {
@@ -189,6 +195,7 @@ async function translateOneLocale(
       catalog: mergeTranslations(sourceCatalog, existing, {}),
       translated: 0,
       status: 'failed',
+      badKeys: keys,
       error: { message: error instanceof Error ? error.message : String(error), kind },
     };
   }
@@ -203,15 +210,16 @@ export async function translateCatalogs(
     sourceCatalog,
     targetLocales,
     existingTargets,
+    outdatedKeys = [],
     maxRetries = 3,
     concurrency = DEFAULT_LOCALE_CONCURRENCY,
   } = input;
 
   const pending = targetLocales.filter(
-    locale => missingKeys(sourceCatalog, existingTargets[locale] ?? {}).length > 0,
+    locale =>
+      keysToTranslateFor(sourceCatalog, existingTargets[locale] ?? {}, outdatedKeys).length > 0,
   );
 
-  // Rien à traduire : on ne résout pas le provider, donc aucune clé API requise.
   if (pending.length === 0 || input.dryRun) {
     return {
       byLocale: targetLocales.map(locale => ({
@@ -222,26 +230,33 @@ export async function translateCatalogs(
       })),
       totalTranslated: 0,
       failed: [],
+      failedKeys: [],
     };
   }
 
-  // Résolu une fois, en amont : une clé absente échoue proprement ici plutôt
-  // qu'en se répétant sur chaque locale.
   const resolved = resolveProvider(provider);
 
-  const byLocale = await mapWithConcurrency(targetLocales, concurrency, locale =>
+  const detailed = await mapWithConcurrency(targetLocales, concurrency, locale =>
     translateOneLocale(locale, {
       provider: resolved,
       sourceLocale,
       sourceCatalog,
       existing: existingTargets[locale] ?? {},
+      outdated: outdatedKeys,
+      contextsByKey: input.contextsByKey,
+      tone: input.tone,
+      glossary: input.glossary,
       maxRetries,
     }),
   );
+
+  const failedKeys = [...new Set(detailed.flatMap(r => r.badKeys))];
+  const byLocale: LocaleTranslation[] = detailed.map(({ badKeys: _omit, ...rest }) => rest);
 
   return {
     byLocale,
     totalTranslated: byLocale.reduce((sum, r) => sum + r.translated, 0),
     failed: byLocale.filter(r => r.error !== undefined).map(r => r.locale),
+    failedKeys,
   };
 }

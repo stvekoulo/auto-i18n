@@ -4,8 +4,9 @@
 
 | Version | Corrections de sécurité |
 | ------- | ----------------------- |
-| 2.x     | oui                     |
-| < 2.0   | non — migrez vers 2.x   |
+| 3.x     | oui                     |
+| 2.2.x   | critiques uniquement    |
+| < 2.2   | non — migrez vers 3.x   |
 
 ## Signaler une vulnérabilité
 
@@ -18,33 +19,30 @@ exposé, et un cas de reproduction minimal. Réponse sous 7 jours.
 
 ## Périmètre
 
-`next-auto-i18n` est un outil de développement local. Il lit le code source du
-projet, écrit des catalogues JSON, et envoie du texte à un service de
-traduction externe. Entrent dans le périmètre :
+`next-auto-i18n` est un outil de développement local et de CI. Il lit le code
+source du projet, écrit des catalogues JSON, et envoie les textes manquants au
+provider de traduction configuré. Entrent dans le périmètre :
 
-- fuite de la clé API (journaux, messages d'erreur, URL, fichiers écrits) ;
-- écriture de fichiers en dehors de la racine du projet ;
+- fuite de la clé API (journaux, messages d'erreur, URL, fichiers écrits, `process.env` partagé entre projets) ;
+- écriture de fichiers en dehors de la racine réelle du projet (`messagesDir`, `--guide`, `rootDirs`, liens symboliques ou jonctions) ;
 - exécution de code provenant du projet scanné ou d'une réponse provider ;
-- corruption ou perte silencieuse de catalogues existants.
+- corruption ou perte silencieuse de catalogues ou de composants existants.
 
 ## Ce que l'outil fait de votre clé API
 
-- Elle est lue depuis une variable d'environnement, jamais depuis la
-  configuration versionnée.
-- `init` l'écrit dans `.env.local` (mode `0600` à la création) et ajoute
-  `.env.local` à `.gitignore`.
-- Elle voyage dans un en-tête HTTP, jamais dans une URL.
-- Elle est masquée dans tout message d'erreur reprenant une réponse du
-  provider.
+- Elle est lue en mémoire depuis l'environnement du processus ou `.env.local` (`node:util.parseEnv`), sans polluer `process.env` entre plusieurs appels programmatiques.
+- `init` l'écrit dans `.env.local` (mode `0600` à la création sur POSIX, refus des sauts de ligne/octets nuls, mise entre guillemets automatique des caractères `#` ou espaces) et ajoute `.env.local` à `.gitignore`.
+- Elle voyage exclusivement dans un en-tête HTTP (`DeepL-Auth-Key`, `x-goog-api-key`, `Authorization: Bearer`, `x-api-key`), jamais dans une URL.
+- Elle est masquée dans tout message d'erreur reprenant une réponse du provider.
 
 Le texte extrait de votre code source est transmis au provider de traduction
-choisi (DeepL ou Google). Vérifiez que cela est compatible avec la
-confidentialité de votre projet avant de lancer `sync`.
+choisi (`deepl`, `google`, `openai`, `gemini` ou `anthropic`). Vérifiez que cela
+est compatible avec la confidentialité de votre projet avant de lancer `sync`.
 
-## Distribution et dépendances
+## Confinement disque, dépendances et verrou
 
-Le verrou `package-lock.json` et les overrides servent au développement du dépôt. La release est assemblée séparément avec `npm run release:pack` : ts-morph et sa fermeture de dépendances installée sont embarqués dans le tarball, avec minimatch corrigé. Les essais consommateurs contrôlent la version effectivement chargée, puis compilent et exécutent de vraies applications.
+Toutes les cibles d'écriture (`messagesDir`, `--guide`, composants modifiés par `--write` ou `restore`) sont contrôlées à la fois lexicalement et via `realpath` afin d'interdire toute sortie de la racine du projet, y compris par lien symbolique ou jonction NTFS.
 
-Publiez le tarball validé, plutôt que le checkout directement. Le script `prepublishOnly` bloque la seconde méthode afin d'éviter de distribuer une résolution transitive différente de celle vérifiée.
+Le parseur AST s'appuie directement sur `typescript` (zéro dépendance transitive). La CI contrôle `npm audit --omit=dev` ainsi que l'installation réelle du tarball dans un consommateur isolé (`npm run release:verify`).
 
-`init` et `sync` prennent un verrou de projet. Les catalogues sont remplacés atomiquement individuellement ; cela ne constitue pas une transaction couvrant tous les fichiers en cas d'arrêt forcé. Le dossier `.auto-i18n.lock/` n'est à retirer manuellement qu'après avoir confirmé l'arrêt de l'opération qui le détenait.
+`init`, `sync`, `add-locale`, `restore` et `clean-backups` prennent un verrou `.auto-i18n.lock/` contenant le PID détenteur (`owner.json`). Lorsqu'un verrou orphelin correspond à un processus terminé, le message d'erreur l'indique explicitement avant nettoyage manuel.

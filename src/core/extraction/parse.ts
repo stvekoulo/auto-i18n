@@ -1,44 +1,55 @@
 /**
- * Parsing en mémoire — pur (string → AST), aucune lecture disque.
- * La lecture de fichiers réels vit dans `src/adapters/fs`.
+ * Parsing AST en mémoire via le compilateur officiel `typescript` — pur (string → AST),
+ * aucune lecture disque et zéro dépendance transitive.
  */
 
-import { ts, Project, type SourceFile } from 'ts-morph';
+import ts from 'typescript';
 
-const COMPILER_OPTIONS = {
-  allowJs: true,
-  jsx: 4, // ts.JsxEmit.ReactJSX
-  skipLibCheck: true,
-} as const;
+export type SourceFile = ts.SourceFile;
 
-/** Diagnostics attachés au nœud par le parser lui-même (propriété interne à TS). */
 type ParsedSourceFile = ts.SourceFile & { parseDiagnostics?: ts.DiagnosticWithLocation[] };
+
+function scriptKindFor(fileName: string): ts.ScriptKind {
+  const lower = fileName.toLowerCase();
+  if (lower.endsWith('.tsx')) return ts.ScriptKind.TSX;
+  if (lower.endsWith('.jsx')) return ts.ScriptKind.JSX;
+  if (lower.endsWith('.js') || lower.endsWith('.mjs') || lower.endsWith('.cjs')) {
+    return ts.ScriptKind.JS;
+  }
+  if (lower.endsWith('.ts') || lower.endsWith('.mts') || lower.endsWith('.cts')) {
+    return ts.ScriptKind.TS;
+  }
+  return ts.ScriptKind.TSX;
+}
 
 /**
  * Erreurs de syntaxe d'un fichier déjà parsé.
  *
  * Le parser TypeScript est tolérant : sur un fichier cassé il ne lève rien et
- * renvoie un arbre partiel dont l'extraction ressort vide. Sans ce contrôle, un
- * fichier invalide serait silencieusement compté comme « scanné, 0 string ».
- *
- * On lit les diagnostics posés par le parser sur le nœud plutôt que de passer
- * par `Program#getSyntacticDiagnostics` : construire un Program par fichier
- * multiplie le temps de scan par ~70. La propriété est interne à TypeScript,
- * d'où la lecture défensive — `tests/core/extraction` échoue si elle disparaît.
+ * attache les diagnostics syntaxiques directement sur le `SourceFile`.
  */
-export function getSyntaxErrors(sourceFile: SourceFile): string[] {
-  const diagnostics = (sourceFile.compilerNode as ParsedSourceFile).parseDiagnostics;
+export function getSyntaxErrors(sourceFile: ts.SourceFile): string[] {
+  const diagnostics = (sourceFile as ParsedSourceFile).parseDiagnostics;
   if (!Array.isArray(diagnostics)) return [];
   return diagnostics.map(d => ts.flattenDiagnosticMessageText(d.messageText, ' '));
 }
 
-/** Parse un contenu source en `SourceFile` ts-morph, sans toucher au disque. */
-export function parseSource(content: string, fileName = 'virtual.tsx'): SourceFile {
-  const project = new Project({
-    compilerOptions: COMPILER_OPTIONS,
-    skipAddingFilesFromTsConfig: true,
-    skipFileDependencyResolution: true,
-    useInMemoryFileSystem: true,
-  });
-  return project.createSourceFile(fileName, content);
+/** Parse un contenu source en `ts.SourceFile` avec parents chaînés, sans toucher au disque. */
+export function parseSource(content: string, fileName = 'virtual.tsx'): ts.SourceFile {
+  return ts.createSourceFile(
+    fileName,
+    content,
+    ts.ScriptTarget.Latest,
+    true,
+    scriptKindFor(fileName),
+  );
+}
+
+/** Position 1-based (ligne, colonne) du début significatif d'un nœud AST. */
+export function locationOf(
+  sourceFile: ts.SourceFile,
+  node: ts.Node,
+): { line: number; column: number } {
+  const { line, character } = sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile));
+  return { line: line + 1, column: character + 1 };
 }

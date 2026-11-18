@@ -7,8 +7,8 @@
  * vrais threads répartissent la charge.
  *
  * Le pool ne s'active qu'au-delà d'un seuil de fichiers : démarrer un worker
- * implique d'y recharger ts-morph, ce qui coûte plusieurs centaines de
- * millisecondes. En dessous du seuil, le scan en ligne est plus rapide.
+ * implique d'y charger le compilateur TypeScript, ce qui coûte quelques dizaines
+ * à centaines de millisecondes. En dessous du seuil, le scan en ligne est plus rapide.
  */
 
 import { existsSync } from 'node:fs';
@@ -20,9 +20,8 @@ import type { FileScanOutcome, ScanRequest, ScanResponse } from './protocol.js';
 /**
  * Seuil d'activation du pool, en fichiers.
  *
- * Démarrer un worker recharge ts-morph (~400 ms, ~570 ms pour quatre en
- * parallèle) et le scan en ligne repart de zéro pendant ce temps. Mesures sur
- * 8 threads logiques, fichier de composant représentatif :
+ * Démarrer un worker charge le parseur TypeScript et le scan en ligne repart
+ * de zéro pendant ce temps. Mesures de référence sur 8 threads logiques :
  *
  * | fichiers | thread principal | 3 workers | rapport |
  * | -------: | ---------------: | --------: | ------: |

@@ -23,6 +23,11 @@ export function renderSyncReport(projectRoot: string, report: SyncReport): void 
       `${report.addedKeys.length} nouvelle${report.addedKeys.length > 1 ? 's' : ''}, ${report.reusedKeys.length} réutilisée${report.reusedKeys.length > 1 ? 's' : ''}`,
     );
   }
+  if ((report.outdatedKeys ?? []).length > 0) {
+    logger.dim(
+      `${report.outdatedKeys.length} clé${report.outdatedKeys.length > 1 ? 's' : ''} retraduite${report.outdatedKeys.length > 1 ? 's' : ''} (texte source modifié)`,
+    );
+  }
 
   for (const result of report.translation.byLocale) {
     switch (result.status) {

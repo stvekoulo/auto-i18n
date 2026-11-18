@@ -1,5 +1,35 @@
 # Changelog
 
+## [3.0.0] - 2026-11-18
+
+### Added
+
+- **Moteur AST `typescript` direct (zéro dépendance transitive)** : remplace `ts-morph`, élimine les vulnérabilités transitives (`picomatch`/`minimatch`), supprime l'embarquement custom de dépendances dans le tarball et accélère fortement le parsing.
+- **Providers IA contextuels (`gemini`, `openai`, `anthropic`)** via `fetch` natif, avec transmission du contexte UI (`jsx-text:<button>`, `jsx-attribute:placeholder`…), du registre (`tone: 'formal' | 'informal' | 'neutral'`) et d'un glossaire projet (`glossary`).
+- **Détection et re-traduction des textes source modifiés (`outdatedKeys`)** : registre d'empreintes `.auto-i18n-hashes.json` mettant automatiquement à jour les traductions lorsqu'un texte source existant est corrigé, et contrôle correspondant dans `check`.
+- **Catalogues imbriqués et namespaces** : options `catalogFormat: 'flat' | 'nested'` et `namespaceByFile: true`, avec support des traducteurs namespacés compatibles dans `sync --write`.
+- **Support Expo / React Native** : détection des projets Expo (`app.json`, `expo`, `_layout.tsx`), extraction des attributs `accessibilityLabel`/`accessibilityHint`/`tabBarLabel`/`headerTitle`, et scaffold natif `expo-localization` + `Pressable`/`Modal` sans DOM HTML.
+- **Nouvelles commandes et options CLI** : `add-locale`, `restore`, `clean-backups`, `sync --no-backup`, `sync --watch`, et `check --format github` (annotations GitHub Actions).
+- **Codemod `sync --write` étendu** : expansion sûre des fonctions fléchées à corps concis (`() => <span/>`), câblage automatique de `export async function generateMetadata()` et section dédiée `generateMetadata` dans `i18n-guide.md`.
+
+### Fixed
+
+- **Pas de corruption syntaxique sur les templates imbriqués (`B1`)** : exclusion des sous-littéraux dans `${...}` et garde anti-chevauchement dans `applyEdits`.
+- **Conservation des textes UI multi-mots en minuscules (`B2`)** : `"se connecter"`, `"mot de passe"`, `"en savoir plus"` ou `"log in"` ne sont plus rejetés à tort comme `css_class_string`.
+- **Respect de `import type` dans `sync --write` (`B3`)** : les hooks runtime ne sont plus injectés dans une déclaration `import type` existante.
+- **Mots-clés JS réservés dans les interpolations (`B4`)** : `${true}` ou `${this}` ne génèrent plus de propriété raccourcie `{ true }` invalide.
+- **Protection des traducteurs parents namespacés (`B5`)** : une sous-fonction interne référençant `t` ne masque plus un `useTranslations('Namespace')` englobant.
+- **Échappement ICU et décodage JSX (`B6`, `B7`)** : préservation des variables entourées d'apostrophes simples (`'${code}'`), décodage des entités JSX (`&apos;`, `&amp;`, `&nbsp;`) et normalisation des retours à la ligne `JsxText`.
+- **Décodage HTML/XML et balises `t.rich()` (`B8`)** : `&amp;` décodé en dernier (plus de transformation `&amp;lt;` → `<`), protection des balises `<link>…</link>` hors `plural`/`select`, et normalisation régionale DeepL (`zh-CN` → `ZH-HANS`, `fr-CA` → `FR`, `tone` → `formality`).
+- **Propagation de `messagesDir` et routage `LanguageSwitcher` (`B9`, `B10`)** : chemins relatifs exacts générés dans `request.ts`/`i18n.ts`, préservation des routes sans préfixe de locale (`/tarifs` → `/en/tarifs`), fermeture `Escape` et attributs ARIA.
+- **Globs `{a,b}`, `rootDirs` monorepo et parité `check`/`sync --prune` (`B11`)** : adoption de `path.posix.matchesGlob`, exclusion des `.d.ts`/`middleware.ts`/`proxy.ts`/`*+api.ts`, et scan différentiel unique partagé par `check` et `sync`.
+
+### Security
+
+- **Confinement strict lexical + `realpath` (`S2`)** : appliqué à `--guide`, `messagesDir`, `rootDirs`, `sync --write` et `restore` (bloque aussi les évasions par liens symboliques ou jonctions).
+- **Lecture `.env.local` isolée sans pollution de `process.env` (`S3`)** : migration de `dotenv` vers `node:util.parseEnv` en mémoire, rejet des caractères `\r`/`\n`/`\0` dans `saveApiKeyToEnv` et mise entre guillemets des valeurs contenant `#` ou des espaces.
+- **Diagnostic des verrous orphelins (`S4`)** : `withProjectLock` vérifie si le PID enregistré dans `.auto-i18n.lock/owner.json` est toujours actif.
+
 ## [2.2.0] - 2026-11-03
 
 ### Added

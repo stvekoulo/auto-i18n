@@ -1,12 +1,16 @@
 /**
  * Heuristiques pour écarter les strings non traduisibles (techniques, CSS, URLs…).
  *
- * Module pur : entrée = valeur de string, sortie = raison d'ignorer (ou `null`).
+ * Module pur : entrée = valeur de string (+ kind optionnel), sortie = raison d'ignorer (ou `null`).
  */
+
+import type { StringKind } from '../types.js';
 
 export interface FilterOptions {
   /** Valeurs supplémentaires à toujours ignorer (configurable par l'utilisateur). */
   blacklist?: string[];
+  /** Nature syntaxique du nœud source, permettant d'éviter les faux positifs CSS sur le texte JSX. */
+  kind?: StringKind;
 }
 
 export type IgnoreReason =
@@ -29,72 +33,53 @@ export type IgnoreReason =
   | 'css_class_string'
   | 'blacklist';
 
-/** Mots-clés techniques qui ne doivent jamais être traduits. */
+/** Mots-clés techniques qui ne doivent jamais être traduits isolément. */
 // prettier-ignore
 const TECHNICAL_KEYWORDS = new Set([
   // CSS display / layout
   'flex', 'grid', 'block', 'inline', 'inline-block', 'inline-flex', 'inline-grid',
   'none', 'hidden', 'visible', 'auto', 'contents', 'table', 'flow-root', 'list-item',
-  // CSS position
+  // CSS position & overflow
   'relative', 'absolute', 'fixed', 'sticky', 'static',
-  // CSS overflow
-  'overflow', 'scroll', 'clip', 'ellipsis',
-  // CSS text
+  'overflow', 'scroll', 'clip', 'ellipsis', 'truncate', 'antialiased', 'prose', 'container',
+  // CSS text & alignement
   'bold', 'italic', 'normal', 'underline', 'uppercase', 'lowercase', 'capitalize',
   'nowrap', 'break-word', 'break-all',
-  // CSS alignement
   'center', 'start', 'end', 'stretch', 'baseline', 'between', 'around', 'evenly',
   'left', 'right', 'justify',
   // CSS misc
   'inherit', 'initial', 'revert', 'unset', 'currentColor', 'transparent',
   'full', 'screen', 'fit', 'max', 'min',
-  // HTTP methods
+  // HTTP methods & headers
   'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD', 'CONNECT', 'TRACE',
-  // HTTP headers
   'Content-Type', 'Content-Length', 'Authorization', 'Accept', 'Accept-Language',
   'Cache-Control', 'Cookie', 'Origin', 'Referer', 'User-Agent', 'X-Requested-With',
-  'X-CSRF-Token', 'X-Forwarded-For',
-  // Auth token prefixes
-  'Bearer', 'Basic', 'Digest',
-  // HTML input types
+  'X-CSRF-Token', 'X-Forwarded-For', 'Bearer', 'Basic', 'Digest',
+  // HTML input types & targets
   'text', 'password', 'email', 'number', 'tel', 'url', 'date', 'time', 'datetime-local',
   'search', 'submit', 'button', 'reset', 'checkbox', 'radio',
   'file', 'range', 'color', 'month', 'week', 'image',
-  // Booléens et primitives JS
   'true', 'false', 'yes', 'no', 'on', 'off', 'null', 'undefined',
-  // HTML link targets
-  '_blank', '_self', '_parent', '_top',
-  // Directions de texte
-  'ltr', 'rtl',
-  // Tokens de taille Tailwind
+  '_blank', '_self', '_parent', '_top', 'ltr', 'rtl',
+  // Tokens Tailwind & couleurs
   'xs', 'sm', 'md', 'lg', 'xl', '2xl', '3xl', '4xl', '5xl', '6xl', '7xl',
-  // Couleurs CSS courantes
   'red', 'blue', 'green', 'yellow', 'orange', 'purple', 'pink',
   'gray', 'grey', 'black', 'white', 'indigo', 'teal', 'cyan', 'violet',
   'rose', 'amber', 'lime', 'emerald', 'sky', 'fuchsia', 'slate',
-  // Types de curseur
+  // Curseurs, états, formats, événements, ARIA, env
   'pointer', 'default', 'cursor', 'move', 'wait', 'not-allowed', 'crosshair', 'grab',
-  // Tailwind variant helpers
   'hover', 'focus', 'active', 'disabled', 'visited', 'checked', 'required', 'optional',
-  // Encodages / formats
   'utf-8', 'utf-16', 'ascii', 'base64', 'gzip', 'deflate', 'br', 'identity',
-  // Types d'événements
-  'click', 'submit', 'change', 'input', 'blur', 'keydown', 'keyup',
+  'click', 'change', 'input', 'blur', 'keydown', 'keyup',
   'mousedown', 'mouseup', 'mouseover', 'mouseout', 'touchstart', 'touchend',
-  // Rôles ARIA
   'dialog', 'menu', 'menuitem', 'tab', 'tabpanel', 'alert', 'status', 'tooltip',
   'navigation', 'main', 'banner', 'contentinfo', 'complementary', 'region', 'presentation',
-  // Environnements Node / Next.js
-  'development', 'production', 'test',
-  // Valeurs React/Next courantes
-  'lazy', 'eager', 'async', 'sync', 'strict',
+  'development', 'production', 'test', 'lazy', 'eager', 'async', 'sync', 'strict',
 ]);
 
 const NUMERIC_RE = /^-?\d+(\.\d+)?$/;
-
 const NUMERIC_WITH_AFFIX_RE =
   /^[€$£¥₩₹฿]?\s*\d[\d\s.,]*\s*[€$£¥₩₹฿%+×xkKmMbB]*[+]?$|^[€$£¥₩₹฿]\s*\d[\d\s.,]*$/;
-
 const CSS_VALUE_RE = /^-?\d+(\.\d+)?(px|em|rem|vh|vw|vmin|vmax|pt|cm|mm|in|pc|ex|ch|%|s|ms)$/;
 const HEX_COLOR_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 const CSS_FUNC_COLOR_RE = /^(?:rgb|rgba|hsl|hsla|oklch|lch|lab|color)\(/;
@@ -105,7 +90,8 @@ const ROUTE_RE = /^\/[a-zA-Z0-9\-_.[\]@()]*(?:\/[a-zA-Z0-9\-_.[\]@()]*)*(?:\?[^#
 const MIME_TYPE_RE =
   /^(?:text|image|application|audio|video|font|model|multipart|message)\/[a-z0-9+.-]+(?:\s*;[^,]*)?$/;
 const ENV_VAR_RE = /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$/;
-const CSS_TOKEN_RE = /^-?[a-z0-9]+(?:[-:/][a-z0-9.[\]%!@*+()\s]+)*!?$/;
+const CSS_TOKEN_RE = /^-?[a-z0-9]+(?:[-:/][a-z0-9.[\]%!@*+()]+)*!?$/;
+const CSS_UTILITY_MARKER_RE = /[-:/[\]!%\d]/;
 
 function isSymbolOrEmojiOnly(value: string): boolean {
   if (!value.trim()) return false;
@@ -124,17 +110,17 @@ function isCamelCaseIdentifier(value: string): boolean {
 function isCssClassString(value: string): boolean {
   const tokens = value.trim().split(/\s+/);
   if (tokens.length < 2) return false;
-  return tokens.every(t => CSS_TOKEN_RE.test(t));
+  if (!tokens.every(t => CSS_TOKEN_RE.test(t))) return false;
+  // Évite de confondre du vrai texte humain en minuscules ("se connecter", "log in")
+  // avec une liste de classes Tailwind : au moins un token doit porter un marqueur CSS
+  // structurel (`-`, `:`, `/`, `[...]`, chiffre) ou être un mot-clé CSS connu.
+  return tokens.some(t => CSS_UTILITY_MARKER_RE.test(t) || TECHNICAL_KEYWORDS.has(t));
 }
 
 function isSingleCssToken(value: string): boolean {
-  // Espaces ou caractères accentués → texte humain, on conserve.
   if (/[\sÀ-ɏḀ-ỿ]/.test(value)) return false;
-  // Majuscule → pas un token CSS standard.
   if (/[A-Z]/.test(value)) return false;
-  // Apostrophes / ponctuation typique de texte → on conserve.
   if (/['"''`]/.test(value)) return false;
-  // Doit contenir au moins un séparateur (tiret ou deux-points).
   if (!/-|:/.test(value)) return false;
   return CSS_TOKEN_RE.test(value);
 }
@@ -142,6 +128,7 @@ function isSingleCssToken(value: string): boolean {
 /** Renvoie la raison d'ignorer une string, ou `null` si elle est traduisible. */
 export function getIgnoreReason(value: string, options?: FilterOptions): IgnoreReason | null {
   const trimmed = value.trim();
+  const isUserFacingMarkup = options?.kind === 'jsx-text' || options?.kind === 'jsx-attribute';
 
   if (!trimmed) return 'empty';
   if (NUMERIC_RE.test(trimmed)) return 'numeric';
@@ -156,10 +143,10 @@ export function getIgnoreReason(value: string, options?: FilterOptions): IgnoreR
   if (ENV_VAR_RE.test(trimmed)) return 'env_var';
   if (NUMERIC_WITH_AFFIX_RE.test(trimmed)) return 'numeric_with_affix';
   if (isSymbolOrEmojiOnly(trimmed)) return 'symbol_or_emoji';
-  if (TECHNICAL_KEYWORDS.has(trimmed)) return 'technical_keyword';
+  if (!isUserFacingMarkup && TECHNICAL_KEYWORDS.has(trimmed)) return 'technical_keyword';
   if (isCamelCaseIdentifier(trimmed)) return 'camel_case_identifier';
-  if (isSingleCssToken(trimmed)) return 'single_css_token';
-  if (isCssClassString(trimmed)) return 'css_class_string';
+  if (!isUserFacingMarkup && isSingleCssToken(trimmed)) return 'single_css_token';
+  if (!isUserFacingMarkup && isCssClassString(trimmed)) return 'css_class_string';
   if (options?.blacklist?.includes(trimmed)) return 'blacklist';
 
   return null;

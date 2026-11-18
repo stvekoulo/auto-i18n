@@ -1,7 +1,6 @@
 /**
  * Provider Google Cloud Translation (API v2 "Basic"). Protège les placeholders
- * `{var}` en `format: 'html'` via `<span translate="no">`, puis les restaure.
- * Normalise les erreurs en {@link TranslationError}, comme le provider DeepL.
+ * `{var}` et balises ICU en `format: 'html'` via `<span translate="no">`.
  */
 
 import {
@@ -16,6 +15,7 @@ import {
 } from './types.js';
 import { translationBatches } from './batches.js';
 import { protectComplexIcu } from './icu.js';
+import { escapeXmlText, unescapeHtmlEntities } from './entities.js';
 import { listProviderLanguages } from './languages.js';
 
 const GOOGLE_TRANSLATE_API = 'https://translation.googleapis.com/language/translate/v2';
@@ -31,28 +31,21 @@ interface GoogleErrorResponse {
 }
 
 function protectPlaceholders(text: string): string {
-  const escape = (value: string) =>
-    value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const complex = protectComplexIcu(text, escape, value => `<span translate="no">${value}</span>`);
+  const complex = protectComplexIcu(
+    text,
+    escapeXmlText,
+    value => `<span translate="no">${value}</span>`,
+  );
   if (complex !== null) return complex;
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\{([^}]+)\}/g, (_, name: string) => `<span translate="no">{${name}}</span>`);
+  return escapeXmlText(text).replace(
+    /\{([^}]+)\}/g,
+    (_, name: string) => `<span translate="no">{${name}}</span>`,
+  );
 }
 
 function restorePlaceholders(text: string): string {
-  return text
-    .replace(/<span translate="no">([\s\S]*?)<\/span>/gi, '$1')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&apos;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#x27;/g, "'")
-    .replace(/&#34;/g, '"');
+  const stripped = text.replace(/<span translate="no">([\s\S]*?)<\/span>/gi, '$1');
+  return unescapeHtmlEntities(stripped);
 }
 
 export class GoogleTranslateProvider implements TranslationProvider {
@@ -93,8 +86,6 @@ export class GoogleTranslateProvider implements TranslationProvider {
 
     let response: Response;
     try {
-      // Clé passée en en-tête, jamais en query string : une URL finit dans les
-      // journaux d'accès, l'historique du proxy et les traces d'erreur.
       response = await fetch(GOOGLE_TRANSLATE_API, {
         method: 'POST',
         headers: {
@@ -128,7 +119,6 @@ export class GoogleTranslateProvider implements TranslationProvider {
     return translated.map(restorePlaceholders);
   }
 
-  /** Neutralise la clé API avant tout affichage. */
   private safe(text: string): string {
     return redactSecret(text, this.apiKey);
   }

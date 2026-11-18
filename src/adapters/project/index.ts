@@ -1,36 +1,29 @@
 /**
- * Adapter projet — détecte la forme du projet cible (lecture seule).
- *
- * Deux familles supportées pour le scaffold : `next-intl` (projet Next.js App
- * Router, détecté via `app/layout.tsx`) et `react-i18next` (React/Vite sans
- * Next.js — scaffold plus simple : config i18n + provider + switcher).
+ * Adapter projet — détecte la forme du projet cible (lecture seule) :
+ * - `next-intl` : Next.js App Router (`app/layout.*` ou `src/app/layout.*`)
+ * - `expo`      : Expo / React Native (`app.json` expo, `node_modules/expo`, ou `app/_layout.*`)
+ * - `react-i18next` : React / Vite web hors Next.js
  */
 
-import { join } from 'path';
+import { join } from 'node:path';
 import { readText, fileExists } from '../fs/index.js';
 
-export type Framework = 'next-intl' | 'react-i18next';
+export type Framework = 'next-intl' | 'react-i18next' | 'expo';
 
 export interface ProjectInfo {
   root: string;
   framework: Framework;
-  /** Chemin du layout racine, ou null si introuvable (implique React/Vite). */
   layoutPath: string | null;
-  /** true si le projet utilise `src/app` plutôt que `app`. */
   useSrc: boolean;
-  /** Répertoire `app` effectif (app/ ou src/app/), ou null. */
   appDir: string | null;
-  /** Version majeure de Next détectée dans node_modules, ou null. */
   nextMajor: number | null;
-  /** true si `next-intl` est installé. */
   hasNextIntl: boolean;
-  /** Point d'entrée React (src/main.tsx, src/index.tsx…), ou null. */
   reactEntryFile: string | null;
-  /** true si `react-i18next` est installé. */
   hasReactI18next: boolean;
+  expoEntryFile: string | null;
+  hasExpoLocalization: boolean;
 }
 
-/** Cherche le layout racine dans app/ ou src/app/. */
 export async function findLayoutFile(projectRoot: string): Promise<string | null> {
   for (const directory of ['app', join('src', 'app')]) {
     for (const scope of ['', '[locale]']) {
@@ -43,7 +36,6 @@ export async function findLayoutFile(projectRoot: string): Promise<string | null
   return null;
 }
 
-/** Cherche next.config.{ts,mjs,js}. */
 export async function findNextConfig(projectRoot: string): Promise<string | null> {
   for (const candidate of [
     join(projectRoot, 'next.config.ts'),
@@ -60,7 +52,7 @@ async function detectNextMajor(projectRoot: string): Promise<number | null> {
     const pkg = JSON.parse(
       await readText(join(projectRoot, 'node_modules', 'next', 'package.json')),
     ) as { version?: string };
-    const major = parseInt(pkg.version?.split('.')[0] ?? '', 10);
+    const major = Number.parseInt(pkg.version?.split('.')[0] ?? '', 10);
     return Number.isNaN(major) ? null : major;
   } catch {
     return null;
@@ -71,7 +63,33 @@ async function isPackageInstalled(projectRoot: string, name: string): Promise<bo
   return fileExists(join(projectRoot, 'node_modules', name, 'package.json'));
 }
 
-/** Cherche le point d'entrée d'une app React/Vite (hors Next.js). */
+async function hasExpoManifest(projectRoot: string): Promise<boolean> {
+  if (await isPackageInstalled(projectRoot, 'expo')) return true;
+  try {
+    const raw = JSON.parse(await readText(join(projectRoot, 'app.json'))) as Record<
+      string,
+      unknown
+    >;
+    return typeof raw?.expo === 'object' && raw.expo !== null;
+  } catch {
+    return false;
+  }
+}
+
+export async function findExpoEntryFile(projectRoot: string): Promise<string | null> {
+  for (const candidate of [
+    join(projectRoot, 'src', 'app', '_layout.tsx'),
+    join(projectRoot, 'src', 'app', '_layout.jsx'),
+    join(projectRoot, 'app', '_layout.tsx'),
+    join(projectRoot, 'app', '_layout.jsx'),
+    join(projectRoot, 'App.tsx'),
+    join(projectRoot, 'App.jsx'),
+  ]) {
+    if (await fileExists(candidate)) return candidate;
+  }
+  return null;
+}
+
 export async function findReactEntryFile(projectRoot: string): Promise<string | null> {
   for (const candidate of [
     join(projectRoot, 'src', 'main.tsx'),
@@ -88,16 +106,29 @@ export async function findReactEntryFile(projectRoot: string): Promise<string | 
 
 export async function detectProject(projectRoot: string): Promise<ProjectInfo> {
   const layoutPath = await findLayoutFile(projectRoot);
-  const useSrc = layoutPath ? layoutPath.includes(join('src', 'app')) : false;
-  const appDir = layoutPath ? join(projectRoot, useSrc ? 'src' : '', 'app') : null;
-  const framework: Framework = layoutPath ? 'next-intl' : 'react-i18next';
+  const [nextMajor, hasNextIntl, hasReactI18next, hasExpoLoc, isExpo, expoEntry] =
+    await Promise.all([
+      detectNextMajor(projectRoot),
+      isPackageInstalled(projectRoot, 'next-intl'),
+      isPackageInstalled(projectRoot, 'react-i18next'),
+      isPackageInstalled(projectRoot, 'expo-localization'),
+      hasExpoManifest(projectRoot),
+      findExpoEntryFile(projectRoot),
+    ]);
 
-  const [nextMajor, hasNextIntl, hasReactI18next, reactEntryFile] = await Promise.all([
-    detectNextMajor(projectRoot),
-    isPackageInstalled(projectRoot, 'next-intl'),
-    isPackageInstalled(projectRoot, 'react-i18next'),
-    framework === 'react-i18next' ? findReactEntryFile(projectRoot) : Promise.resolve(null),
-  ]);
+  const isExpoRouterLayout = !layoutPath && Boolean(expoEntry && expoEntry.includes('_layout.'));
+  const framework: Framework = layoutPath
+    ? 'next-intl'
+    : isExpo || isExpoRouterLayout
+      ? 'expo'
+      : 'react-i18next';
+
+  const useSrc = layoutPath
+    ? layoutPath.includes(join('src', 'app'))
+    : Boolean(expoEntry?.includes(join('src', 'app')));
+  const appDir = layoutPath ? join(projectRoot, useSrc ? 'src' : '', 'app') : null;
+  const reactEntryFile =
+    framework === 'react-i18next' ? await findReactEntryFile(projectRoot) : null;
 
   return {
     root: projectRoot,
@@ -109,5 +140,7 @@ export async function detectProject(projectRoot: string): Promise<ProjectInfo> {
     hasNextIntl,
     reactEntryFile,
     hasReactI18next,
+    expoEntryFile: framework === 'expo' ? expoEntry : null,
+    hasExpoLocalization: hasExpoLoc,
   };
 }

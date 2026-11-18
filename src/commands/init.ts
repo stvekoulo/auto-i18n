@@ -14,6 +14,7 @@ import {
   CONFIG_FILENAME,
 } from '../config/index.js';
 import { saveApiKeyToEnv, ensureGitignore } from '../utils/env.js';
+import { assertInsideProject, staysInsideProject } from '../utils/paths.js';
 import { detectProject } from '../adapters/project/index.js';
 import { scaffoldProject, type ScaffoldTargetResult } from '../adapters/scaffold/index.js';
 import { writeText, ensureDir, fileExists } from '../adapters/fs/index.js';
@@ -59,6 +60,13 @@ async function initLocked(options: RunInitOptions): Promise<RunInitResult> {
     throw new Error('Une configuration existe déjà. Utilisez "sync" pour mettre à jour le projet.');
   }
 
+  const relGuidePath = options.guidePath ?? 'i18n-guide.md';
+  if (!staysInsideProject(relGuidePath)) {
+    throw new Error(
+      `Chemin de guide refusé ("${relGuidePath}") : il doit rester à l'intérieur du projet.`,
+    );
+  }
+  const guidePath = await assertInsideProject(projectRoot, relGuidePath);
   const config = buildConfig(sourceLocale, targetLocales, options.providerName);
   const problems = validateConfig(config);
   if (problems.length > 0)
@@ -72,16 +80,25 @@ async function initLocked(options: RunInitOptions): Promise<RunInitResult> {
   const project = await detectProject(projectRoot);
   if (project.framework === 'next-intl' && !project.hasNextIntl) {
     logger.warn('next-intl introuvable — installez-le : npm install next-intl');
+  } else if (project.framework === 'expo' && !project.hasReactI18next) {
+    logger.warn(
+      'Packages Expo i18n introuvables — installez-les : npx expo install expo-localization i18next react-i18next',
+    );
   } else if (project.framework === 'react-i18next' && !project.hasReactI18next) {
     logger.warn('react-i18next introuvable — installez-le : npm install i18next react-i18next');
   }
 
   logger.step(
-    project.framework === 'next-intl' ? 'Infrastructure next-intl' : 'Infrastructure react-i18next',
+    project.framework === 'next-intl'
+      ? 'Infrastructure next-intl'
+      : project.framework === 'expo'
+        ? 'Infrastructure Expo (react-i18next)'
+        : 'Infrastructure react-i18next',
   );
   const scaffold = await scaffoldProject(project, {
     locales: [sourceLocale, ...targetLocales],
     defaultLocale: sourceLocale,
+    messagesDir: config.messagesDir,
   });
   renderScaffold(projectRoot, scaffold);
 
@@ -108,7 +125,6 @@ async function initLocked(options: RunInitOptions): Promise<RunInitResult> {
     keyMap: syncReport.keyMap,
     fileRuntimes: syncReport.fileRuntimes,
   });
-  const guidePath = resolve(projectRoot, options.guidePath ?? 'i18n-guide.md');
   await ensureDir(dirname(guidePath));
   await writeText(guidePath, buildGuide(guideModel));
   logger.success(`Guide écrit : ${relative(projectRoot, guidePath)}`);

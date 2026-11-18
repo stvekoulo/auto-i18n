@@ -34,6 +34,9 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      - name: Runtime security audit
+        run: npm audit --omit=dev
+
       - name: Format
         run: npm run format:check
 

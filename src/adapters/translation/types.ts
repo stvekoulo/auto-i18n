@@ -1,29 +1,25 @@
 /**
  * Contrat d'un provider de traduction, et utilitaires HTTP partagés par les
- * implémentations. Le core ne dépend jamais d'un provider concret : il manipule
- * cette interface, ce qui rend DeepL substituable.
+ * implémentations. Le core ne dépend jamais d'un provider concret.
  */
 
-/** Delai au-dela duquel une requete provider est abandonnee. */
 export const REQUEST_TIMEOUT_MS = 30_000;
 
-/**
- * Retire toute occurrence de la cle API d'un texte destine a l'affichage.
- *
- * Le corps d'erreur d'un provider est repris tel quel dans les messages : sans
- * ce filtre, une reponse qui renvoie la requete en echo publierait la cle dans
- * les logs de CI.
- */
+export type TranslationTone = 'formal' | 'informal' | 'neutral';
+
+export interface ProviderOptions {
+  /** Modèle LLM optionnel (ex. `gpt-4o-mini`, `gemini-2.5-flash`, `claude-haiku-4-5`). */
+  model?: string;
+}
+
 export function redactSecret(text: string, secret: string): string {
   return secret ? text.split(secret).join('***') : text;
 }
 
-/** Tronque un detail d'erreur provider pour garder les messages lisibles. */
 export function truncate(text: string, max = 300): string {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
-/** Lit un en-tete `Retry-After` (secondes ou date HTTP) en millisecondes. */
 export function parseRetryAfter(header: string | null): number | undefined {
   if (!header) return undefined;
   const seconds = Number(header);
@@ -35,29 +31,29 @@ export function parseRetryAfter(header: string | null): number | undefined {
 export interface TranslateParams {
   sourceLocale: string;
   targetLocale: string;
+  /** Registre souhaité (`formal` = vouvoiement, `informal` = tutoiement). */
+  tone?: TranslationTone;
+  /** Glossaire projet à respecter (`terme source` → `traduction imposée`). */
+  glossary?: Record<string, string>;
+  /** Indices syntaxiques par texte (`jsx-text:<button>`, `jsx-attribute:placeholder`…). */
+  contexts?: Array<string | undefined>;
 }
 
 export interface TranslationProvider {
   listLanguages?(type?: 'source' | 'target'): Promise<Array<{ language: string; name?: string }>>;
   readonly name: string;
-  /**
-   * Traduit `texts` vers `targetLocale`. L'ordre de sortie correspond à l'entrée.
-   * Les placeholders `{var}` doivent être préservés tels quels.
-   */
   translate(texts: string[], params: TranslateParams): Promise<string[]>;
 }
 
 export type TranslationErrorKind =
   'auth' | 'quota' | 'rate_limit' | 'network' | 'bad_request' | 'provider';
 
-/** Erreur normalisée, indépendante du provider concret. */
 export class TranslationError extends Error {
   constructor(
     message: string,
     public readonly kind: TranslationErrorKind,
     public readonly retryable: boolean,
     public readonly status?: number,
-    /** Delai demande par le provider (en-tete `Retry-After`), si fourni. */
     public readonly retryAfterMs?: number,
   ) {
     super(message);
@@ -65,7 +61,6 @@ export class TranslationError extends Error {
   }
 }
 
-/** Un lot incomplet décalerait les correspondances des lots suivants. */
 export function assertTranslations(
   texts: unknown,
   expectedCount: number,

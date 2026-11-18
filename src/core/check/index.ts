@@ -1,11 +1,5 @@
 /**
- * Calcul du rapport `check` — pur. Compare les strings détectées dans le code
- * aux catalogues (source + cibles) et produit un diagnostic.
- *
- * Sémantique (modèle zéro-mutation) :
- * - une string détectée = string brute encore dans le code (non câblée en `t()`).
- * - `uncatalogued` = strings détectées absentes du catalogue source → `sync` les ajouterait.
- * - `missingByLocale` = clés du catalogue source absentes d'une locale cible.
+ * Calcul du rapport `check` — pur.
  */
 
 import type { Catalog, ExtractedString } from '../types.js';
@@ -15,6 +9,8 @@ import type { CatalogReferences } from '../scan/references.js';
 export interface CheckInput {
   sourceLocale?: string;
   references?: CatalogReferences;
+  extraValues?: Iterable<string>;
+  outdatedKeys?: string[];
   strings: ExtractedString[];
   filesScanned: number;
   parseErrors: string[];
@@ -24,27 +20,22 @@ export interface CheckInput {
 
 export interface CheckReport {
   invalidByLocale?: Record<string, string[]>;
+  /** Clés dont le texte source a été modifié depuis la dernière traduction. */
+  outdatedKeys: string[];
   filesScanned: number;
   parseErrors: string[];
   detected: { total: number; safe: number; review: number };
-  /** Valeurs détectées absentes du catalogue source (un `sync` les cataloguerait). */
   uncatalogued: string[];
   sourceKeyCount: number;
   missingByLocale: Record<string, string[]>;
   totalMissing: number;
-  /**
-   * Clés du catalogue source dont le texte n'est plus détecté dans le code
-   * (`sync --prune` les retire). Informatif — n'affecte pas `ok`, une string
-   * temporairement invisible au scan (fichier ignoré, erreur de parsing) ne
-   * doit pas faire échouer la CI.
-   */
   orphanedKeys: string[];
-  /** true si aucun travail en attente : rien à cataloguer et traductions complètes. */
   ok: boolean;
 }
 
 export function buildCheckReport(input: CheckInput): CheckReport {
   const { strings, filesScanned, parseErrors, sourceCatalog, targetCatalogs } = input;
+  const outdated = input.outdatedKeys ?? [];
 
   let safe = 0;
   let review = 0;
@@ -76,14 +67,12 @@ export function buildCheckReport(input: CheckInput): CheckReport {
     if (invalid.length) invalidByLocale[locale] = invalid;
   }
 
-  const orphanedKeys = orphanKeys(
-    sourceCatalog,
-    strings.map(s => s.value),
-    input.references,
-  );
+  const allPresentValues = [...strings.map(s => s.value), ...(input.extraValues ?? [])];
+  const orphanedKeys = orphanKeys(sourceCatalog, allPresentValues, input.references);
 
   return {
     invalidByLocale,
+    outdatedKeys: outdated,
     filesScanned,
     parseErrors,
     detected: { total: strings.length, safe, review },
@@ -96,6 +85,7 @@ export function buildCheckReport(input: CheckInput): CheckReport {
       parseErrors.length === 0 &&
       uncatalogued.length === 0 &&
       totalMissing === 0 &&
+      outdated.length === 0 &&
       Object.keys(invalidByLocale).length === 0,
   };
 }

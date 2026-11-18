@@ -31,8 +31,35 @@
     "provider": {
       "type": "string",
       "description": "Provider de traduction utilisé.",
-      "enum": ["deepl", "google"],
+      "enum": ["deepl", "google", "openai", "gemini", "anthropic"],
       "default": "deepl"
+    },
+    "model": {
+      "type": "string",
+      "description": "Modèle LLM optionnel lorsque provider vaut openai, gemini ou anthropic."
+    },
+    "tone": {
+      "type": "string",
+      "description": "Registre de langue souhaité.",
+      "enum": ["formal", "informal", "neutral"]
+    },
+    "catalogFormat": {
+      "type": "string",
+      "description": "Structure des fichiers JSON de messages.",
+      "enum": ["flat", "nested"],
+      "default": "flat"
+    },
+    "namespaceByFile": {
+      "type": "boolean",
+      "description": "Préfixe automatiquement les nouvelles clés par le nom du composant en mode nested.",
+      "default": false
+    },
+    "glossary": {
+      "type": "object",
+      "description": "Glossaire métier imposé aux providers LLM.",
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "apiKeyEnv": {
       "type": "string",
@@ -47,7 +74,7 @@
     },
     "ignore": {
       "type": "array",
-      "description": "Patterns glob exclus du scan (en plus des exclusions par défaut comme node_modules et .next).",
+      "description": "Patterns glob exclus du scan.",
       "items": {
         "type": "string"
       },
@@ -55,13 +82,13 @@
     },
     "rootDirs": {
       "type": "array",
-      "description": "Dossiers de premier niveau à scanner. Absent = liste par défaut (app, src, pages, components, lib, hooks, utils, ui, features, shared). À renseigner si le code applicatif vit ailleurs.",
+      "description": "Dossiers applicatifs à scanner (supporte aussi les sous-chemins de monorepo comme apps/web/src).",
       "minItems": 1,
       "uniqueItems": true,
       "items": {
         "type": "string"
       },
-      "examples": [["app", "modules", "views"]]
+      "examples": [["app", "src", "apps/web/src"]]
     }
   }
 }

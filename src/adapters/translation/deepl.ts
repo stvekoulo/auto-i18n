@@ -1,6 +1,6 @@
 /**
- * Provider DeepL. Protège les placeholders `{var}` via des balises XML ignorées
- * par DeepL, puis les restaure. Normalise les erreurs en {@link TranslationError}.
+ * Provider DeepL. Protège les placeholders `{var}` et balises ICU via XML,
+ * normalise les codes régionaux BCP-47 (`zh-CN` → `ZH-HANS`, `fr-CA` → `FR`) et supporte `tone`.
  */
 
 import {
@@ -15,39 +15,46 @@ import {
 } from './types.js';
 import { translationBatches } from './batches.js';
 import { protectComplexIcu } from './icu.js';
+import { escapeXmlText, unescapeHtmlEntities } from './entities.js';
 import { listProviderLanguages } from './languages.js';
 
 const DEEPL_FREE_API = 'https://api-free.deepl.com/v2/translate';
 const DEEPL_PRO_API = 'https://api.deepl.com/v2/translate';
 
+const DEEPL_REGIONAL_TARGETS = new Set([
+  'EN-GB',
+  'EN-US',
+  'PT-BR',
+  'PT-PT',
+  'ES-419',
+  'ZH-HANS',
+  'ZH-HANT',
+]);
+
 interface DeepLResponse {
   translations: Array<{ text: string; detected_source_language: string }>;
 }
 
+export function normalizeDeepLTarget(locale: string): string {
+  const lower = locale.trim().toLowerCase();
+  if (lower === 'zh-cn' || lower === 'zh-sg' || lower.startsWith('zh-hans')) return 'ZH-HANS';
+  if (lower === 'zh-tw' || lower === 'zh-hk' || lower.startsWith('zh-hant')) return 'ZH-HANT';
+  const upper = lower.toUpperCase();
+  if (DEEPL_REGIONAL_TARGETS.has(upper)) return upper;
+  return upper.split('-')[0];
+}
+
 function protectPlaceholders(text: string): string {
-  const escape = (value: string) =>
-    value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const complex = protectComplexIcu(text, escape, value => `<x data-icu="1">${value}</x>`);
+  const complex = protectComplexIcu(text, escapeXmlText, value => `<x data-icu="1">${value}</x>`);
   if (complex !== null) return complex;
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\{([^}]+)\}/g, (_, name: string) => `<x>${name}</x>`);
+  return escapeXmlText(text).replace(/\{([^}]+)\}/g, (_, name: string) => `<x>${name}</x>`);
 }
 
 function restorePlaceholders(text: string): string {
-  return text
+  const restoredTags = text
     .replace(/<x\s+data-icu="1">([\s\S]*?)<\/x>/gi, '$1')
-    .replace(/<x>\s*([^<]*?)\s*<\/x>/gi, '{$1}')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&apos;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#x27;/g, "'")
-    .replace(/&#34;/g, '"');
+    .replace(/<x>\s*([^<]*?)\s*<\/x>/gi, '{$1}');
+  return unescapeHtmlEntities(restoredTags);
 }
 
 export class DeepLProvider implements TranslationProvider {
@@ -80,12 +87,14 @@ export class DeepLProvider implements TranslationProvider {
   private body(texts: string[], params: TranslateParams): Record<string, unknown> {
     const body: Record<string, unknown> = {
       text: texts.map(protectPlaceholders),
-      target_lang: params.targetLocale.toUpperCase(),
+      target_lang: normalizeDeepLTarget(params.targetLocale),
       tag_handling: 'xml',
       tag_handling_version: 'v2',
       ignore_tags: ['x'],
     };
     if (params.sourceLocale) body['source_lang'] = params.sourceLocale.split('-')[0].toUpperCase();
+    if (params.tone === 'formal') body['formality'] = 'prefer_more';
+    else if (params.tone === 'informal') body['formality'] = 'prefer_less';
     return body;
   }
 
@@ -126,7 +135,6 @@ export class DeepLProvider implements TranslationProvider {
     return translated.map(restorePlaceholders);
   }
 
-  /** Neutralise la clé API avant tout affichage. */
   private safe(text: string): string {
     return redactSecret(text, this.apiKey);
   }

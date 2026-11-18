@@ -1,23 +1,16 @@
 /**
- * Scaffold de l'infrastructure i18n : crée les fichiers manquants.
+ * Scaffold de l'infrastructure i18n : crée les fichiers manquants pour
+ * `next-intl` (Next.js), `react-i18next` (React/Vite) et `expo` (Expo / React Native).
  *
- * Deux chemins selon `project.framework` :
- * - `next-intl` (Next.js App Router) : routing, request config, middleware,
- *   plugin next.config, switcher.
- * - `react-i18next` (React/Vite hors Next.js) : config i18n (catalogues déjà
- *   traduits par `sync`), import ajouté au point d'entrée, switcher.
- *
- * Discipline commune : on ne crée que ce qui est absent. Les seules mutations
- * tolérées sont l'enrobage du `next.config` par `withNextIntl` et l'ajout d'un
- * `import './i18n'` au point d'entrée React — toujours avec backup, et on
- * bascule en `manual` si la structure n'est pas reconnue plutôt que de risquer
- * une casse. La restructuration `app/[locale]` n'est jamais automatique → guide.
+ * Utilise directement le parseur `typescript` (zéro dépendance `ts-morph`).
  */
 
-import { join, relative } from 'path';
-import { Project, SyntaxKind } from 'ts-morph';
+import { dirname, join, relative, resolve } from 'node:path';
+import ts from 'typescript';
 import { fileExists, writeText, ensureDir, backupFile, readText } from '../fs/index.js';
 import { findNextConfig, type ProjectInfo } from '../project/index.js';
+import { parseSource } from '../../core/extraction/parse.js';
+import { applyEdits, type WriteEdit } from '../../core/write/index.js';
 import {
   routingTemplate,
   requestTemplate,
@@ -26,6 +19,8 @@ import {
   reactI18nConfigTemplate,
   reactI18nSwitcherTemplate,
   reactEntryImportLine,
+  expoI18nConfigTemplate,
+  expoSwitcherTemplate,
 } from './templates.js';
 
 export type ScaffoldStatus = 'created' | 'already_present' | 'manual';
@@ -49,10 +44,17 @@ export interface ScaffoldTargetResult {
 export interface ScaffoldOptions {
   locales: string[];
   defaultLocale: string;
+  /** Dossier des catalogues configuré (défaut `./messages`). */
+  messagesDir?: string;
 }
 
 function baseDirOf(project: ProjectInfo): string {
   return project.useSrc ? join(project.root, 'src') : project.root;
+}
+
+function toPosixImportPath(fromFile: string, toTarget: string): string {
+  const rel = relative(dirname(fromFile), toTarget).replace(/\\/g, '/');
+  return rel.startsWith('.') ? rel : `./${rel}`;
 }
 
 async function existsInAny(paths: string[]): Promise<string | null> {
@@ -79,14 +81,20 @@ async function scaffoldRouting(
   return { target: 'routing', status: 'created', path: filePath };
 }
 
-async function scaffoldRequest(project: ProjectInfo): Promise<ScaffoldTargetResult> {
+async function scaffoldRequest(
+  project: ProjectInfo,
+  opts: ScaffoldOptions,
+): Promise<ScaffoldTargetResult> {
   const baseDir = baseDirOf(project);
   const filePath = join(baseDir, 'i18n', 'request.ts');
   const existing = await existsInAny([filePath, join(project.root, 'i18n', 'request.ts')]);
   if (existing) return { target: 'request', status: 'already_present', path: existing };
 
+  const absMessagesDir = resolve(project.root, opts.messagesDir ?? './messages');
+  const messagesRel = toPosixImportPath(filePath, absMessagesDir);
+
   await ensureDir(join(baseDir, 'i18n'));
-  await writeText(filePath, requestTemplate(project.useSrc));
+  await writeText(filePath, requestTemplate(messagesRel));
   return { target: 'request', status: 'created', path: filePath };
 }
 
@@ -135,15 +143,10 @@ async function scaffoldConfig(project: ProjectInfo): Promise<ScaffoldTargetResul
     return { target: 'config', status: 'already_present', path: configPath };
   }
 
-  const proj = new Project({
-    compilerOptions: { allowJs: true, skipLibCheck: true },
-    skipAddingFilesFromTsConfig: true,
-    skipFileDependencyResolution: true,
-  });
-  const sf = proj.addSourceFileAtPath(configPath);
-  const defaultExport = sf
-    .getDescendantsOfKind(SyntaxKind.ExportAssignment)
-    .find(e => !e.isExportEquals());
+  const sf = parseSource(content, configPath);
+  const defaultExport = sf.statements.find(
+    (s): s is ts.ExportAssignment => ts.isExportAssignment(s) && !s.isExportEquals,
+  );
 
   if (!defaultExport) {
     return {
@@ -154,99 +157,135 @@ async function scaffoldConfig(project: ProjectInfo): Promise<ScaffoldTargetResul
     };
   }
 
-  const expr = defaultExport.getExpression();
-  expr.replaceWithText(`withNextIntl(${expr.getText()})`);
-  sf.addImportDeclaration({
-    moduleSpecifier: 'next-intl/plugin',
-    defaultImport: 'createNextIntlPlugin',
-  });
-  sf.insertStatements(
-    sf.getImportDeclarations().length,
-    'const withNextIntl = createNextIntlPlugin();',
-  );
+  const expr = defaultExport.expression;
+  const imports = sf.statements.filter(ts.isImportDeclaration);
+  const insertHeaderAt = imports.length > 0 ? imports[imports.length - 1].getEnd() : 0;
+  const header =
+    (insertHeaderAt > 0 ? '\n' : '') +
+    "import createNextIntlPlugin from 'next-intl/plugin';\nconst withNextIntl = createNextIntlPlugin();\n";
+
+  const edits: WriteEdit[] = [
+    { start: insertHeaderAt, end: insertHeaderAt, replacement: header },
+    {
+      start: expr.getStart(sf),
+      end: expr.getEnd(),
+      replacement: `withNextIntl(${expr.getText(sf)})`,
+    },
+  ];
 
   await backupFile(configPath);
-  await sf.save();
+  await writeText(configPath, applyEdits(content, edits));
   return { target: 'config', status: 'created', path: configPath };
 }
 
-// ── react-i18next (projets React/Vite hors Next.js) ─────────────────────────
-
-async function scaffoldReactI18nConfig(
+async function scaffoldClientI18nConfig(
   project: ProjectInfo,
   opts: ScaffoldOptions,
-): Promise<ScaffoldTargetResult> {
-  const srcDir = join(project.root, 'src');
-  const filePath = join(srcDir, 'i18n.ts');
+): Promise<{ result: ScaffoldTargetResult; i18nFilePath: string }> {
+  const targetDir =
+    project.framework === 'expo' &&
+    !project.useSrc &&
+    !(await fileExists(join(project.root, 'src')))
+      ? project.root
+      : join(project.root, 'src');
+  const filePath = join(targetDir, 'i18n.ts');
   if (await fileExists(filePath)) {
-    return { target: 'react-i18n-config', status: 'already_present', path: filePath };
-  }
-
-  await ensureDir(srcDir);
-  const messagesDir = join(project.root, 'messages');
-  const messagesRelativePath = relative(srcDir, messagesDir).replace(/\\/g, '/');
-  await writeText(
-    filePath,
-    reactI18nConfigTemplate({
-      locales: opts.locales,
-      defaultLocale: opts.defaultLocale,
-      messagesRelativePath: messagesRelativePath.startsWith('.')
-        ? messagesRelativePath
-        : `./${messagesRelativePath}`,
-    }),
-  );
-  return { target: 'react-i18n-config', status: 'created', path: filePath };
-}
-
-async function scaffoldReactEntry(project: ProjectInfo): Promise<ScaffoldTargetResult> {
-  if (!project.reactEntryFile) {
     return {
-      target: 'react-entry',
-      status: 'manual',
-      note: "Point d'entrée introuvable (src/main.tsx ou src/index.tsx) — ajoutez \"import './i18n';\" en première ligne, avant le rendu de votre app.",
+      result: { target: 'react-i18n-config', status: 'already_present', path: filePath },
+      i18nFilePath: filePath,
     };
   }
 
-  const content = await readText(project.reactEntryFile);
-  if (content.includes("'./i18n'") || content.includes('"./i18n"')) {
-    return { target: 'react-entry', status: 'already_present', path: project.reactEntryFile };
-  }
+  await ensureDir(targetDir);
+  const absMessagesDir = resolve(project.root, opts.messagesDir ?? './messages');
+  const messagesRelativePath = toPosixImportPath(filePath, absMessagesDir);
 
-  await backupFile(project.reactEntryFile);
-  await writeText(project.reactEntryFile, reactEntryImportLine() + content);
-  return { target: 'react-entry', status: 'created', path: project.reactEntryFile };
+  const template =
+    project.framework === 'expo'
+      ? expoI18nConfigTemplate({
+          locales: opts.locales,
+          defaultLocale: opts.defaultLocale,
+          messagesRelativePath,
+          useExpoLocalization: project.hasExpoLocalization,
+        })
+      : reactI18nConfigTemplate({
+          locales: opts.locales,
+          defaultLocale: opts.defaultLocale,
+          messagesRelativePath,
+        });
+
+  await writeText(filePath, template);
+  return {
+    result: { target: 'react-i18n-config', status: 'created', path: filePath },
+    i18nFilePath: filePath,
+  };
 }
 
-async function scaffoldReactSwitcher(
+async function scaffoldClientEntry(
+  project: ProjectInfo,
+  i18nFilePath: string,
+): Promise<ScaffoldTargetResult> {
+  const entryFile = project.framework === 'expo' ? project.expoEntryFile : project.reactEntryFile;
+  if (!entryFile) {
+    return {
+      target: 'react-entry',
+      status: 'manual',
+      note: "Point d'entrée introuvable — importez la configuration i18n en première ligne.",
+    };
+  }
+
+  const i18nNoExt = i18nFilePath.replace(/\.ts$/, '');
+  const relImport = toPosixImportPath(entryFile, i18nNoExt);
+  const content = await readText(entryFile);
+  if (content.includes(`'${relImport}'`) || content.includes(`"${relImport}"`)) {
+    return { target: 'react-entry', status: 'already_present', path: entryFile };
+  }
+
+  await backupFile(entryFile);
+  await writeText(entryFile, reactEntryImportLine(relImport) + content);
+  return { target: 'react-entry', status: 'created', path: entryFile };
+}
+
+async function scaffoldClientSwitcher(
   project: ProjectInfo,
   opts: ScaffoldOptions,
 ): Promise<ScaffoldTargetResult> {
-  const componentsDir = join(project.root, 'src', 'components');
+  const base =
+    project.framework === 'expo' &&
+    !project.useSrc &&
+    !(await fileExists(join(project.root, 'src')))
+      ? project.root
+      : join(project.root, 'src');
+  const componentsDir = join(base, 'components');
   const filePath = join(componentsDir, 'LanguageSwitcher.tsx');
   const existing = await existsInAny([filePath, join(componentsDir, 'LanguageSwitcher.jsx')]);
   if (existing) return { target: 'switcher', status: 'already_present', path: existing };
 
   await ensureDir(componentsDir);
-  await writeText(filePath, reactI18nSwitcherTemplate(opts.locales));
+  const code =
+    project.framework === 'expo'
+      ? expoSwitcherTemplate(opts.locales)
+      : reactI18nSwitcherTemplate(opts.locales);
+  await writeText(filePath, code);
   return { target: 'switcher', status: 'created', path: filePath };
 }
 
-/** Crée l'infrastructure i18n manquante pour le framework détecté. N'écrase jamais l'existant. */
 export async function scaffoldProject(
   project: ProjectInfo,
   options: ScaffoldOptions,
 ): Promise<ScaffoldTargetResult[]> {
-  if (project.framework === 'react-i18next') {
+  if (project.framework === 'react-i18next' || project.framework === 'expo') {
+    const { result: cfgResult, i18nFilePath } = await scaffoldClientI18nConfig(project, options);
     return [
-      await scaffoldReactI18nConfig(project, options),
-      await scaffoldReactEntry(project),
-      await scaffoldReactSwitcher(project, options),
+      cfgResult,
+      await scaffoldClientEntry(project, i18nFilePath),
+      await scaffoldClientSwitcher(project, options),
     ];
   }
 
   return [
     await scaffoldRouting(project, options),
-    await scaffoldRequest(project),
+    await scaffoldRequest(project, options),
     await scaffoldMiddleware(project),
     await scaffoldConfig(project),
     await scaffoldSwitcher(project),

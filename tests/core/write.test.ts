@@ -44,13 +44,15 @@ describe('core/write — composants client', () => {
     expect(result.skipped).toEqual([{ value: 'Bonjour', line: 4, reason: 't_conflict' }]);
   });
 
-  it('ignore les fonctions à corps concis (arrow sans bloc)', () => {
+  it('convertit les fonctions fléchées à corps concis en bloc valide', () => {
     const content = "'use client';\nexport const Widget = () => <p>Bonjour</p>;\n";
     const { result, output } = write(content, 'client', { Bonjour: 'bonjour' });
 
-    expect(result.written).toBe(0);
-    expect(result.skipped[0].reason).toBe('concise_body');
-    expect(output).toBe(content);
+    expect(result.written).toBe(1);
+    expect(result.skipped).toEqual([]);
+    expect(output).toContain('const t = useTranslations();');
+    expect(output).toContain('{t("bonjour")}');
+    expect(getSyntaxErrors(parseSource(output, 'C.tsx'))).toEqual([]);
   });
 
   it('ne câble pas une fonction hôte non identifiable (nom non-composant)', () => {

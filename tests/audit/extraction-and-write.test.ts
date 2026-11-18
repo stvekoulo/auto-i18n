@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runInNewContext } from 'node:vm';
-import { ts } from 'ts-morph';
+import ts from 'typescript';
 import { parseSource, getSyntaxErrors } from '../../src/core/extraction';
 import { applyEdits, computeWriteEdits } from '../../src/core/write';
 import { reactI18nConfigTemplate } from '../../src/adapters/scaffold/templates';
