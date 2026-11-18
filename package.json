@@ -78,7 +78,7 @@
     "node": ">=22.13.0"
   },
   "dependencies": {
-    "@formatjs/icu-messageformat-parser": "^3.5.22",
+    "@formatjs/icu-messageformat-parser": "^3.5.23",
     "@inquirer/prompts": "^8.7.5",
     "chalk": "^6.0.1",
     "commander": "^15.0.0",
